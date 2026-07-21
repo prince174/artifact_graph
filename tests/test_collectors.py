@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.collectors import BitbucketCloudCollector, BitbucketDataCenterCollector, Repository
+from app.collectors import BitbucketCloudCollector, BitbucketDataCenterCollector, Repository, teamcity_properties
 from app.service import normalize_url
 
 
@@ -37,3 +37,13 @@ def test_clone_url_normalization_matches_https_and_ssh():
     assert normalize_url("git@bitbucket.org:acme/api.git") == expected
     assert normalize_url("ssh://git@bitbucket.org/acme/api.git") == expected
 
+
+def test_reads_teamcity_settings_properties():
+    detail = {"settings": {"property": [
+        {"name": "artifactRules", "value": "**/sbom.json => artifacts"},
+        {"name": "buildNumberCounter", "value": "1"},
+    ]}}
+    assert teamcity_properties(detail, "settings") == {
+        "artifactRules": "**/sbom.json => artifacts",
+        "buildNumberCounter": "1",
+    }

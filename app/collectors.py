@@ -118,7 +118,7 @@ class TeamCityCollector(ApiClient):
         return data.get("buildType", [])
 
     async def build_type(self, build_type_id: str):
-        fields = "id,name,projectId,webUrl,artifactRules,steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies,artifact-dependencies"
+        fields = "id,name,projectId,webUrl,settings(property(name,value)),steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies,artifact-dependencies"
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
@@ -137,6 +137,10 @@ def repository_provider() -> RepositoryProvider:
     if settings.bitbucket_provider == "datacenter":
         return BitbucketDataCenterCollector(settings.bitbucket_url, settings.bitbucket_token)
     raise ValueError(f"Unsupported BITBUCKET_PROVIDER: {settings.bitbucket_provider}")
+
+
+def teamcity_properties(container: dict, key: str = "properties") -> dict[str, str]:
+    return {item["name"]: item.get("value", "") for item in container.get(key, {}).get("property", [])}
 
 
 def _href(value):

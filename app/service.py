@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from .analyzer import find_pushes, publishes_sbom
-from .collectors import TeamCityCollector, repository_provider
+from .collectors import TeamCityCollector, repository_provider, teamcity_properties
 from .config import settings
 from .demo import dataset
 from .models import Edge, Node, Scan, SessionLocal
@@ -82,10 +82,11 @@ async def collect_live():
                     iid = f"image:{push['image']}"
                     nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"]})
                     edges.append({"source": bid, "target": iid, "relation": "pushes", "evidence": source.path})
-            if publishes_sbom(detail.get("artifactRules", "")):
+            artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
+            if publishes_sbom(artifact_rules):
                 aid = f"artifact:{bid}/sbom.json"
-                nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json"})
-                edges.append({"source": bid, "target": aid, "relation": "publishes"})
+                nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json", "rule": artifact_rules})
+                edges.append({"source": bid, "target": aid, "relation": "publishes", "evidence": artifact_rules})
             for build in await tc.builds(detail["id"]):
                 run_id = f"build:{build['id']}"
                 build_data = {k: v for k, v in build.items() if k not in {"id", "label", "kind"}}
