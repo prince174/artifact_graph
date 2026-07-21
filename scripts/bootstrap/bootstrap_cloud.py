@@ -103,10 +103,13 @@ def bootstrap_teamcity():
                 {"name": "secure:password", "value": TOKEN},
             ]
             vcs = {"id": vcs_id, "name": slug, "vcsName": "jetbrains.git", "project": {"id": "Demo"}, "properties": {"property": props}}
-            response = client.post("/app/rest/vcs-roots", json=vcs)
-            if response.status_code not in (200, 201, 400): raise RuntimeError(response.text)
-            response = client.post("/app/rest/buildTypes", json={"id": build_id, "name": f"{index:02d} Build {slug}", "project": {"id": "Demo"}})
-            if response.status_code not in (200, 201, 400): raise RuntimeError(response.text)
+            exists = client.get(f"/app/rest/vcs-roots/id:{vcs_id}")
+            response = client.put(f"/app/rest/vcs-roots/id:{vcs_id}", json=vcs) if exists.status_code == 200 else client.post("/app/rest/vcs-roots", json=vcs)
+            if response.status_code not in (200, 201): raise RuntimeError(response.text)
+            build_payload = {"id": build_id, "name": f"{index:02d} Build {slug}", "project": {"id": "Demo"}}
+            exists = client.get(f"/app/rest/buildTypes/id:{build_id}")
+            response = client.put(f"/app/rest/buildTypes/id:{build_id}", json=build_payload) if exists.status_code == 200 else client.post("/app/rest/buildTypes", json=build_payload)
+            if response.status_code not in (200, 201): raise RuntimeError(response.text)
             tc_put(client, f"/app/rest/buildTypes/id:{build_id}/vcs-root-entries", {"vcs-root-entry": [{"id": vcs_id, "vcs-root": {"id": vcs_id}}]})
             script = "set -eu\nchmod +x ci/build.sh\n./ci/build.sh" + ("\nchmod +x ci/sbom.sh\n./ci/sbom.sh" if sbom else "")
             tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [{"name": "Build and publish", "type": "simpleRunner", "properties": {"property": [{"name": "script.content", "value": script}]}}]})
