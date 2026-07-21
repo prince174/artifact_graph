@@ -13,9 +13,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest==8.4.1", "pytest-asyncio==1.1.0"]
+test = ["pytest==8.4.1", "pytest-asyncio==1.1.0", "pytest-cov==6.2.1"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing --cov-fail-under=75"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["config*", "scripts*", "tests*"]

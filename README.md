@@ -69,3 +69,10 @@ sudo bash scripts/deploy.sh ssh://git@bitbucket.example/scm/tools/artefact-graph
 python -m pip install -e '.[test]'
 pytest
 ```
+
+Pytest enforces at least 75% line coverage for the application package. To validate
+the running ten-repository fixture, including node counts and repository search:
+
+```bash
+python scripts/validate_live.py --url http://localhost:18081 --repository java-maven-api
+```
