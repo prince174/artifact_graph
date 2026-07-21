@@ -111,7 +111,13 @@ def bootstrap_teamcity():
             script = "set -eu\nchmod +x ci/build.sh\n./ci/build.sh" + ("\nchmod +x ci/sbom.sh\n./ci/sbom.sh" if sbom else "")
             tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [{"name": "Build and publish", "type": "simpleRunner", "properties": {"property": [{"name": "script.content", "value": script}]}}]})
             if sbom:
-                tc_put(client, f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules", "**/sbom.json => artifacts")
+                response = client.put(
+                    f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules",
+                    content="**/sbom.json => artifacts",
+                    headers={"Content-Type": "text/plain", "Accept": "text/plain"},
+                )
+                if response.status_code not in (200, 201, 204):
+                    raise RuntimeError(f"set artifact rules for {build_id}: {response.status_code} {response.text[:500]}")
         if TC_READER_USERNAME:
             request(client, "PUT", f"/app/rest/users/username:{TC_READER_USERNAME}/roles/PROJECT_VIEWER/p:Demo", ok=(200, 204))
             print(f"granted PROJECT_VIEWER on Demo to {TC_READER_USERNAME}")
