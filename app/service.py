@@ -7,6 +7,7 @@ from .collectors import TeamCityCollector, repository_provider
 from .config import settings
 from .demo import dataset
 from .models import Edge, Node, Scan, SessionLocal
+from .source_analysis import expand_scripts
 
 
 def _save(nodes, edges):
@@ -45,7 +46,7 @@ async def refresh():
 
 async def collect_live():
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
-    nodes, edges, repo_by_url = [], [], {}
+    nodes, edges, repo_by_url, repo_records = [], [], {}, {}
     try:
         async for repo in bb.repositories():
             pid = f"bb-project:{repo.namespace}/{repo.project_key}"
@@ -55,6 +56,7 @@ async def collect_live():
                 {"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider},
             ]
             edges.append({"source": pid, "target": rid, "relation": "contains"})
+            repo_records[rid] = repo
             for clone_url in repo.clone_urls:
                 repo_by_url[normalize_url(clone_url)] = rid
         for summary in await tc.build_types():
@@ -63,19 +65,23 @@ async def collect_live():
             nodes += [{"id": pid, "kind": "tc_project", "label": detail["projectId"]}, {"id": bid, "kind": "build_configuration", "label": detail["name"], "url": detail.get("webUrl")}]
             edges.append({"source": pid, "target": bid, "relation": "contains"})
             roots = detail.get("vcs-root-entries", {}).get("vcs-root-entry", [])
+            linked_repositories = []
             for entry in roots:
                 props = {p["name"]: p.get("value", "") for p in entry.get("vcs-root", {}).get("properties", {}).get("property", [])}
                 url = props.get("url", "")
                 if repo_id := repo_by_url.get(normalize_url(url)):
                     edges.append({"source": repo_id, "target": bid, "relation": "built_by", "confidence": "exact_vcs_url"})
+                    linked_repositories.append(repo_records[repo_id])
             scripts = []
             for step in detail.get("steps", {}).get("step", []):
                 props = {p["name"]: p.get("value", "") for p in step.get("properties", {}).get("property", [])}
                 scripts.extend(v for k, v in props.items() if "script" in k.lower())
-            for push in find_pushes("\n".join(scripts)):
-                iid = f"image:{push['image']}"
-                nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"]})
-                edges.append({"source": bid, "target": iid, "relation": "pushes"})
+            sources = await expand_scripts(bb, linked_repositories, scripts)
+            for source in sources:
+                for push in find_pushes(source.text):
+                    iid = f"image:{push['image']}"
+                    nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"]})
+                    edges.append({"source": bid, "target": iid, "relation": "pushes", "evidence": source.path})
             if publishes_sbom(detail.get("artifactRules", "")):
                 aid = f"artifact:{bid}/sbom.json"
                 nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json"})

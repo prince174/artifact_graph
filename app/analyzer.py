@@ -1,6 +1,7 @@
 import re
 
 PUSH_RE = re.compile(r"(?:^|[;&|\n]\s*)(docker|podman)\s+push\s+([^\s;&|]+)", re.I)
+SCRIPT_RE = re.compile(r"(?<![\w.-])(?:\./)?([\w.-]+(?:/[\w.-]+)*\.(?:sh|ps1|py))(?![\w.-])", re.I)
 
 
 def find_pushes(script: str) -> list[dict]:
@@ -13,3 +14,6 @@ def publishes_sbom(artifact_rules: str) -> bool:
         for line in (artifact_rules or "").splitlines()
     )
 
+
+def referenced_scripts(script: str) -> list[str]:
+    return list(dict.fromkeys(match.group(1) for match in SCRIPT_RE.finditer(script or "")))
