@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 
+from app.teamcity_setup import authorize_connected_agents
 from bootstrap import REPOS, files_for, request, tc_put
 
 WORKSPACE = os.environ["BITBUCKET_WORKSPACE"]
@@ -126,6 +127,8 @@ def bootstrap_teamcity():
         if TC_READER_USERNAME:
             request(client, "PUT", f"/app/rest/users/username:{TC_READER_USERNAME}/roles/PROJECT_VIEWER/p:Demo", ok=(200, 204))
             print(f"granted PROJECT_VIEWER on Demo to {TC_READER_USERNAME}")
+        agents = authorize_connected_agents(client)
+        print(f"authorized TeamCity agents: {','.join(agents) if agents else 'already authorized'}")
 
 
 if __name__ == "__main__":
