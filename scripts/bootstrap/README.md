@@ -12,6 +12,8 @@ export BITBUCKET_WORKSPACE=my-workspace
 export BB_BOOTSTRAP_EMAIL=admin@example.com
 export BB_BOOTSTRAP_TOKEN=...
 export TC_ADMIN_TOKEN=...
+export TEAMCITY_BOOTSTRAP_URL=http://localhost:8111
+export TEAMCITY_READER_USERNAME=artefact-graph-reader
 python -m pip install httpx
 python scripts/bootstrap/bootstrap_cloud.py
 ```
@@ -26,6 +28,11 @@ token только со scope `read:repository:bitbucket`; запишите emai
 `TC_ADMIN_TOKEN` также используется только bootstrap-скриптом. `TEAMCITY_TOKEN` — отдельный
 постоянный токен пользователя TeamCity с ролью Project Viewer; административный токен нельзя
 оставлять приложению после настройки.
+
+`TEAMCITY_URL` — адрес из Docker-сети (`http://teamcity:8111`), а
+`TEAMCITY_BOOTSTRAP_URL` — адрес, доступный локальному bootstrap-процессу
+(`http://localhost:8111`). Пользователь `TEAMCITY_READER_USERNAME` должен уже существовать;
+скрипт назначит ему роль Project Viewer только на проект `Demo`.
 
 Для Git-аутентификации bootstrap и TeamCity используют поддерживаемое Bitbucket статическое имя
 `x-bitbucket-api-token-auth`; искать персональный Bitbucket username не требуется.

@@ -15,8 +15,9 @@ from bootstrap import REPOS, files_for, request, tc_put
 WORKSPACE = os.environ["BITBUCKET_WORKSPACE"]
 EMAIL = os.environ["BB_BOOTSTRAP_EMAIL"]
 TOKEN = os.environ["BB_BOOTSTRAP_TOKEN"]
-TC_URL = os.getenv("TEAMCITY_URL", "http://localhost:8111").rstrip("/")
+TC_URL = os.getenv("TEAMCITY_BOOTSTRAP_URL", "http://localhost:8111").rstrip("/")
 TC_TOKEN = os.getenv("TC_ADMIN_TOKEN", "")
+TC_READER_USERNAME = os.getenv("TEAMCITY_READER_USERNAME", "")
 
 
 def cloud_headers():
@@ -111,6 +112,9 @@ def bootstrap_teamcity():
             tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [{"name": "Build and publish", "type": "simpleRunner", "properties": {"property": [{"name": "script.content", "value": script}]}}]})
             if sbom:
                 tc_put(client, f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules", "**/sbom.json => artifacts")
+        if TC_READER_USERNAME:
+            request(client, "PUT", f"/app/rest/users/username:{TC_READER_USERNAME}/roles/PROJECT_VIEWER/p:Demo", ok=(200, 204))
+            print(f"granted PROJECT_VIEWER on Demo to {TC_READER_USERNAME}")
 
 
 if __name__ == "__main__":
