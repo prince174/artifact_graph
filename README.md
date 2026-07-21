@@ -1,0 +1,71 @@
+# Artefact Graph
+
+Python-сервис строит интерактивный граф `Bitbucket repository → TeamCity build configuration → build/image/SBOM`.
+Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
+script steps, правило `**/sbom.json => artifacts` и последние пять запусков каждой конфигурации.
+
+Bitbucket подключается через общий контракт `RepositoryProvider`. Поддерживаются адаптеры
+`cloud` (основной) и `datacenter` (опциональный).
+
+## Быстрый старт demo
+
+```bash
+docker compose up -d --build postgres graph
+```
+
+Откройте `http://localhost:8080`. Demo содержит 10 репозиториев и по пять запусков каждой сборки.
+Кнопка обновления запускает скан вручную, плановый скан выполняется раз в 60 минут.
+
+## Bitbucket Cloud
+
+Создайте workspace в Bitbucket Cloud и отдельную учётную запись системы. Для неё создайте API token
+со scope `read:repository:bitbucket`. Заполните `.env`:
+
+```env
+APP_MODE=live
+BITBUCKET_PROVIDER=cloud
+BITBUCKET_WORKSPACE=my-workspace
+BITBUCKET_AUTH=api_token
+BITBUCKET_EMAIL=reader@example.com
+BITBUCKET_TOKEN=...
+TEAMCITY_TOKEN=...
+```
+
+Для workspace/project access token используйте `BITBUCKET_AUTH=access_token` и оставьте
+`BITBUCKET_EMAIL` пустым. Приложение выполняет только GET-запросы.
+
+## Полный стенд с TeamCity
+
+```bash
+docker compose up -d --build postgres graph teamcity teamcity-agent registry
+```
+
+1. Завершите бесплатную настройку TeamCity Professional на `http://localhost:8111`.
+2. Создайте Cloud workspace и тестовые репозитории.
+3. Скопируйте `.env.example` в `.env`, запишите read-only токены, смените `APP_MODE=live` и перезапустите `graph`.
+
+Локальный Bitbucket Data Center сохранён только как необязательный профиль и по умолчанию не запускается:
+
+```bash
+docker compose --profile datacenter up -d bitbucket-db bitbucket
+```
+
+Сервис использует только `GET` к Bitbucket и TeamCity. Токены bootstrap-администратора приложению
+не передаются. Web UI пока не имеет пользовательской авторизации (единый доступ, как согласовано),
+поэтому публиковать порт 8080 в недоверенную сеть не следует.
+
+## Развёртывание на Linux
+
+```bash
+sudo bash scripts/deploy.sh ssh://git@bitbucket.example/scm/tools/artefact-graph.git /opt/artefact-graph
+```
+
+Скрипт клонирует репозиторий при первом запуске, затем делает `git pull --ff-only` и полностью
+пересоздаёт сервисы. Данные хранятся в Docker volumes и при пересоздании контейнеров сохраняются.
+
+## Проверка
+
+```bash
+python -m pip install -e '.[test]'
+pytest
+```

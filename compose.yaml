@@ -1,0 +1,107 @@
+name: artefact-graph
+services:
+  graph:
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_MODE: ${APP_MODE:-demo}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://graph:graph@postgres:5432/graph}
+      REFRESH_MINUTES: ${REFRESH_MINUTES:-60}
+      BITBUCKET_PROVIDER: ${BITBUCKET_PROVIDER:-cloud}
+      BITBUCKET_URL: ${BITBUCKET_URL:-http://bitbucket:7990}
+      BITBUCKET_WORKSPACE: ${BITBUCKET_WORKSPACE:-}
+      BITBUCKET_EMAIL: ${BITBUCKET_EMAIL:-}
+      BITBUCKET_AUTH: ${BITBUCKET_AUTH:-api_token}
+      BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
+      TEAMCITY_URL: ${TEAMCITY_URL:-http://teamcity:8111}
+      TEAMCITY_TOKEN: ${TEAMCITY_TOKEN:-}
+      VERIFY_TLS: ${VERIFY_TLS:-false}
+    ports:
+      - "${GRAPH_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: graph
+      POSTGRES_USER: graph
+      POSTGRES_PASSWORD: graph
+    volumes:
+      - graph-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graph"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  bitbucket-db:
+    profiles: ["datacenter"]
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bitbucket
+      POSTGRES_USER: bitbucket
+      POSTGRES_PASSWORD: bitbucket
+    volumes:
+      - bitbucket-db:/var/lib/postgresql/data
+
+  bitbucket:
+    profiles: ["datacenter"]
+    image: atlassian/bitbucket-server:7.10.0
+    restart: unless-stopped
+    ports:
+      - "7990:7990"
+      - "7999:7999"
+    environment:
+      JDBC_DRIVER: org.postgresql.Driver
+      JDBC_URL: jdbc:postgresql://bitbucket-db:5432/bitbucket
+      JDBC_USER: bitbucket
+      JDBC_PASSWORD: bitbucket
+      SERVER_PROXY_NAME: localhost
+      SERVER_PROXY_PORT: 7990
+      SERVER_SCHEME: http
+    volumes:
+      - bitbucket-home:/var/atlassian/application-data/bitbucket
+    depends_on:
+      - bitbucket-db
+
+  teamcity:
+    image: jetbrains/teamcity-server:2025.03.3
+    restart: unless-stopped
+    ports:
+      - "8111:8111"
+    volumes:
+      - teamcity-data:/data/teamcity_server/datadir
+      - teamcity-logs:/opt/teamcity/logs
+
+  teamcity-agent:
+    image: jetbrains/teamcity-agent:2025.03.3-linux-sudo
+    privileged: true
+    restart: unless-stopped
+    environment:
+      SERVER_URL: http://teamcity:8111
+      DOCKER_IN_DOCKER: start
+    volumes:
+      - teamcity-agent:/data/teamcity_agent/conf
+    depends_on:
+      - teamcity
+
+  registry:
+    image: registry:2.8.3
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+
+volumes:
+  graph-db:
+  bitbucket-db:
+  bitbucket-home:
+  teamcity-data:
+  teamcity-logs:
+  teamcity-agent:
+  registry-data:
