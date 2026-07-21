@@ -7,30 +7,21 @@ TC_ADMIN_TOKEN. This script is intentionally idempotent where the APIs permit it
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.fixtures import REPOS, files_for
 
 BB = os.getenv("BITBUCKET_URL", "http://localhost:7990").rstrip("/")
 TC = os.getenv("TEAMCITY_URL", "http://localhost:8111").rstrip("/")
 BB_TOKEN = os.getenv("BB_ADMIN_TOKEN", "")
 TC_TOKEN = os.getenv("TC_ADMIN_TOKEN", "")
 PROJECT = "DEMO"
-
-REPOS = [
-    ("java-maven-api", "maven", "docker push localhost:5000/java-maven-api:1.0", True),
-    ("java-gradle-worker", "gradle", "podman push localhost:5000/java-gradle-worker:1.0", False),
-    ("npm-frontend", "npm", "docker push localhost:5000/npm-frontend:1.0", True),
-    ("python-service", "python", "docker push localhost:5000/python-service:1.0", False),
-    ("terraform-infra", "terraform", "", True),
-    ("ansible-deploy", "ansible", "", False),
-    ("java-maven-orders", "maven", "docker push localhost:5000/orders:1.0", True),
-    ("java-gradle-billing", "gradle", "podman push localhost:5000/billing:1.0", False),
-    ("npm-admin", "npm", "docker push localhost:5000/npm-admin:1.0", True),
-    ("python-jobs", "python", "docker push localhost:5000/python-jobs:1.0", False),
-]
-
 
 def headers(token):
     return {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
@@ -41,28 +32,6 @@ def request(client, method, path, *, ok=(200, 201, 204), **kwargs):
     if response.status_code not in ok:
         raise RuntimeError(f"{method} {path}: {response.status_code} {response.text[:500]}")
     return response
-
-
-def files_for(slug, stack, command, sbom):
-    common = {
-        "README.md": f"# {slug}\n\nIntegration fixture for Artefact Graph.\n",
-        "Dockerfile": "FROM alpine:3.20\nCMD [\"echo\", \"fixture\"]\n",
-        "ci/build.sh": f"#!/bin/sh\nset -eu\necho build {slug}\n{command or 'echo no image for this build'}\n",
-    }
-    if sbom:
-        common["ci/sbom.sh"] = "#!/bin/sh\nmkdir -p build\nprintf '{\"bomFormat\":\"CycloneDX\"}' > build/sbom.json\n"
-    additions = {
-        "maven": {"pom.xml": "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>app</artifactId><version>1</version></project>\n"},
-        "gradle": {"settings.gradle": f"rootProject.name='{slug}'\n", "build.gradle": "plugins { id 'java' }\n"},
-        "npm": {"package.json": json.dumps({"name": slug, "version": "1.0.0", "scripts": {"build": "echo built"}}, indent=2)},
-        "python": {"pyproject.toml": "[project]\nname='demo-app'\nversion='1.0.0'\n", "src/main.py": "print('fixture')\n"},
-        "terraform": {"main.tf": 'terraform { required_version = \">= 1.5\" }\nresource "null_resource" "fixture" {}\n'},
-        "ansible": {"playbook.yml": "- hosts: localhost\n  gather_facts: false\n  tasks:\n    - debug: msg=fixture\n"},
-    }
-    common.update(additions[stack])
-    if int(slug.encode().hex(), 16) % 2 == 0:
-        common[".teamcity/settings.kts"] = "import jetbrains.buildServer.configs.kotlin.*\nversion = \"2024.12\"\nproject { }\n"
-    return common
 
 
 def git_push(slug, files):

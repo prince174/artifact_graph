@@ -86,6 +86,7 @@ services:
       DOCKER_IN_DOCKER: start
     volumes:
       - teamcity-agent:/data/teamcity_agent/conf
+      - ./config/teamcity-agent/daemon.json:/etc/docker/daemon.json:ro
     depends_on:
       - teamcity
 

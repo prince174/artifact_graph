@@ -4,14 +4,18 @@ import base64
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from app.teamcity_setup import authorize_connected_agents
-from bootstrap import REPOS, files_for, request, tc_put
+from app.fixtures import REPOS, files_for
+from bootstrap import request, tc_put
 
 WORKSPACE = os.environ["BITBUCKET_WORKSPACE"]
 EMAIL = os.environ["BB_BOOTSTRAP_EMAIL"]
