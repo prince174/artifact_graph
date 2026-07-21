@@ -70,7 +70,8 @@ def has_commits(client, slug):
 def bootstrap_cloud():
     with httpx.Client(base_url="https://api.bitbucket.org/2.0", headers=cloud_headers(), timeout=60) as client:
         project = client.post(f"/workspaces/{WORKSPACE}/projects", json={"key": "DEMO", "name": "Artefact Graph Demo"})
-        if project.status_code not in (200, 201, 409):
+        project_exists = project.status_code == 400 and "already exists" in project.text.lower()
+        if project.status_code not in (200, 201, 409) and not project_exists:
             raise RuntimeError(f"create project: {project.status_code} {project.text}")
         for slug, stack, command, sbom in REPOS:
             response = client.post(f"/repositories/{WORKSPACE}/{slug}", json={"scm": "git", "is_private": True, "project": {"key": "DEMO"}})
