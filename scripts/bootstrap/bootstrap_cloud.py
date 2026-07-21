@@ -13,7 +13,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.teamcity_setup import authorize_connected_agents
+from app.teamcity_setup import authorize_connected_agents, command_line_script_step
 from app.fixtures import REPOS, files_for
 from bootstrap import request, tc_put
 
@@ -119,7 +119,7 @@ def bootstrap_teamcity():
                 if response.status_code not in (200, 201): raise RuntimeError(response.text)
             tc_put(client, f"/app/rest/buildTypes/id:{build_id}/vcs-root-entries", {"vcs-root-entry": [{"id": vcs_id, "vcs-root": {"id": vcs_id}}]})
             script = "set -eu\nchmod +x ci/build.sh\n./ci/build.sh" + ("\nchmod +x ci/sbom.sh\n./ci/sbom.sh" if sbom else "")
-            tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [{"name": "Build and publish", "type": "simpleRunner", "properties": {"property": [{"name": "script.content", "value": script}]}}]})
+            tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [command_line_script_step(script)]})
             if sbom:
                 response = client.put(
                     f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules",

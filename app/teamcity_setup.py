@@ -16,3 +16,14 @@ def authorize_connected_agents(client) -> list[str]:
         result.raise_for_status()
         authorized.append(str(agent["id"]))
     return authorized
+
+
+def command_line_script_step(script: str) -> dict:
+    return {
+        "name": "Build and publish",
+        "type": "simpleRunner",
+        "properties": {"property": [
+            {"name": "use.custom.script", "value": "true"},
+            {"name": "script.content", "value": script},
+        ]},
+    }

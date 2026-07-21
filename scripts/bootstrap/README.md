@@ -34,6 +34,16 @@ token только со scope `read:repository:bitbucket`; запишите emai
 (`http://localhost:8111`). Пользователь `TEAMCITY_READER_USERNAME` должен уже существовать;
 скрипт назначит ему роль Project Viewer только на проект `Demo`.
 
+После авторизации build agent запустите по пять сборок и дождитесь завершения:
+
+```bash
+export TC_ADMIN_TOKEN=...
+export TEAMCITY_BOOTSTRAP_URL=http://localhost:8111
+python scripts/bootstrap/run_teamcity_builds.py --count 5 --timeout 1800
+```
+
+Скрипт идемпотентен: он ставит в очередь только недостающее число сборок для каждой конфигурации.
+
 Для Git-аутентификации bootstrap и TeamCity используют поддерживаемое Bitbucket статическое имя
 `x-bitbucket-api-token-auth`; искать персональный Bitbucket username не требуется.
 
