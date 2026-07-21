@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     bitbucket_auth: str = "api_token"
     bitbucket_token: str = ""
     teamcity_url: str = "http://localhost:8111"
+    teamcity_public_url: str = "http://localhost:8111"
     teamcity_token: str = ""
     verify_tls: bool = True
 

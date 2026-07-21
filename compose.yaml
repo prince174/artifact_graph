@@ -14,6 +14,7 @@ services:
       BITBUCKET_AUTH: ${BITBUCKET_AUTH:-api_token}
       BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:-}
       TEAMCITY_URL: ${TEAMCITY_URL:-http://teamcity:8111}
+      TEAMCITY_PUBLIC_URL: ${TEAMCITY_PUBLIC_URL:-http://localhost:8111}
       TEAMCITY_TOKEN: ${TEAMCITY_TOKEN:-}
       VERIFY_TLS: ${VERIFY_TLS:-false}
     ports:

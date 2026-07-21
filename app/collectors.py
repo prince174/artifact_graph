@@ -122,8 +122,29 @@ class TeamCityCollector(ApiClient):
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
-        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},count:5", fields="build(id,number,status,state,startDate,finishDate,webUrl)")
+        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:finished,count:5", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
         return data.get("build", [])
+
+    async def artifacts(self, build_id: str):
+        files = []
+
+        async def visit(path: str, prefix: str = ""):
+            data = await self.get_json(path)
+            for item in data.get("file", []):
+                name = item.get("name", "")
+                full_name = f"{prefix}/{name}".strip("/")
+                if child := item.get("children", {}).get("href"):
+                    await visit(child, full_name)
+                elif content := item.get("content", {}).get("href"):
+                    files.append({
+                        "name": name,
+                        "path": full_name,
+                        "size": item.get("size"),
+                        "url": f"{settings.teamcity_public_url.rstrip('/')}{content}",
+                    })
+
+        await visit(f"/app/rest/builds/id:{build_id}/artifacts/children")
+        return files
 
 
 def repository_provider() -> RepositoryProvider:

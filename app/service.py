@@ -77,20 +77,23 @@ async def collect_live():
                 props = {p["name"]: p.get("value", "") for p in step.get("properties", {}).get("property", [])}
                 scripts.extend(v for k, v in props.items() if "script" in k.lower())
             sources = await expand_scripts(bb, linked_repositories, scripts)
+            pushed_images = []
             for source in sources:
                 for push in find_pushes(source.text):
                     iid = f"image:{push['image']}"
                     nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"]})
                     edges.append({"source": bid, "target": iid, "relation": "pushes", "evidence": source.path})
+                    pushed_images.append({"image": push["image"], "engine": push["engine"], "evidence": source.path})
             artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
             if publishes_sbom(artifact_rules):
                 aid = f"artifact:{bid}/sbom.json"
                 nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json", "rule": artifact_rules})
                 edges.append({"source": bid, "target": aid, "relation": "publishes", "evidence": artifact_rules})
             for build in await tc.builds(detail["id"]):
-                run_id = f"build:{build['id']}"
-                build_data = {k: v for k, v in build.items() if k not in {"id", "label", "kind"}}
-                nodes.append({"id": run_id, "kind": "build", "label": f"#{build.get('number', build['id'])}", **build_data})
+                artifacts = await tc.artifacts(build["id"])
+                node = build_node(build, pushed_images, artifacts)
+                run_id = node["id"]
+                nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
         return deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
     finally:
@@ -111,3 +114,15 @@ def normalize_url(url: str):
 
 def deduplicate(items, keys=("id",)):
     return list({tuple(item[k] for k in keys): item for item in items}.values())
+
+
+def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) -> dict:
+    successful = build.get("status") == "SUCCESS"
+    return {
+        "id": f"build:{build['id']}",
+        "kind": "build",
+        "label": f"#{build.get('number', build['id'])}",
+        **{k: v for k, v in build.items() if k != "id"},
+        "pushedImages": pushed_images if successful else [],
+        "sbomArtifacts": [artifact for artifact in artifacts if artifact.get("name", "").lower() == "sbom.json"],
+    }
