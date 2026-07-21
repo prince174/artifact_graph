@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -36,10 +37,34 @@ def push(slug, files):
             ["git", "config", "user.email", EMAIL], ["git", "add", "."],
             ["git", "commit", "-m", "Initial test project"],
             ["git", "remote", "add", "origin", f"https://bitbucket.org/{WORKSPACE}/{slug}.git"],
-            ["git", "-c", f"http.extraHeader=Authorization: Basic {auth}", "push", "-u", "origin", "main"],
         ]
         for command in commands:
             subprocess.run(command, cwd=root, check=True, stdout=subprocess.DEVNULL)
+        git_env = os.environ.copy()
+        git_env.update({
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {auth}",
+        })
+        for attempt in range(6):
+            result = subprocess.run(
+                ["git", "push", "-u", "origin", "main"], cwd=root, env=git_env,
+                text=True, capture_output=True,
+            )
+            if result.returncode == 0:
+                print(f"pushed {slug}")
+                return
+            if attempt < 5:
+                time.sleep(2 ** attempt)
+        raise RuntimeError(f"Git push failed for {slug}: {result.stderr.strip()}")
+
+
+def has_commits(client, slug):
+    response = client.get(f"/repositories/{WORKSPACE}/{slug}/commits", params={"pagelen": 1})
+    if response.status_code == 409:  # Empty repository.
+        return False
+    response.raise_for_status()
+    return bool(response.json().get("values"))
 
 
 def bootstrap_cloud():
@@ -49,10 +74,12 @@ def bootstrap_cloud():
             raise RuntimeError(f"create project: {project.status_code} {project.text}")
         for slug, stack, command, sbom in REPOS:
             response = client.post(f"/repositories/{WORKSPACE}/{slug}", json={"scm": "git", "is_private": True, "project": {"key": "DEMO"}})
-            if response.status_code in (200, 201):
-                push(slug, files_for(slug, stack, command, sbom))
-            elif response.status_code != 400 or "already exists" not in response.text.lower():
+            if response.status_code not in (200, 201, 400):
                 raise RuntimeError(f"create {slug}: {response.status_code} {response.text}")
+            if response.status_code == 400 and "already exists" not in response.text.lower():
+                raise RuntimeError(f"create {slug}: {response.status_code} {response.text}")
+            if not has_commits(client, slug):
+                push(slug, files_for(slug, stack, command, sbom))
 
 
 def bootstrap_teamcity():
