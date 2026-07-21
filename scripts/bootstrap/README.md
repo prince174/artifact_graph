@@ -23,6 +23,10 @@ VCS roots и 10 build configurations. Повторный запуск пропу
 После bootstrap удалите временный токен. Для приложения создайте отдельную учётную запись и API
 token только со scope `read:repository:bitbucket`; запишите email и токен в `.env`.
 
+`TC_ADMIN_TOKEN` также используется только bootstrap-скриптом. `TEAMCITY_TOKEN` — отдельный
+постоянный токен пользователя TeamCity с ролью Project Viewer; административный токен нельзя
+оставлять приложению после настройки.
+
 Для Git-аутентификации bootstrap и TeamCity используют поддерживаемое Bitbucket статическое имя
 `x-bitbucket-api-token-auth`; искать персональный Bitbucket username не требуется.
 
