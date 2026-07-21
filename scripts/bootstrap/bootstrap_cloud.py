@@ -24,7 +24,7 @@ def cloud_headers():
 
 
 def push(slug, files):
-    auth = base64.b64encode(f"{EMAIL}:{TOKEN}".encode()).decode()
+    auth = base64.b64encode(f"x-bitbucket-api-token-auth:{TOKEN}".encode()).decode()
     with tempfile.TemporaryDirectory(prefix=f"cloud-{slug}-") as temp:
         root = Path(temp)
         for name, content in files.items():
@@ -70,7 +70,7 @@ def bootstrap_teamcity():
                 {"name": "url", "value": f"https://bitbucket.org/{WORKSPACE}/{slug}.git"},
                 {"name": "branch", "value": "refs/heads/main"},
                 {"name": "authMethod", "value": "PASSWORD"},
-                {"name": "username", "value": EMAIL},
+                {"name": "username", "value": "x-bitbucket-api-token-auth"},
                 {"name": "secure:password", "value": TOKEN},
             ]
             vcs = {"id": vcs_id, "name": slug, "vcsName": "jetbrains.git", "project": {"id": "Demo"}, "properties": {"property": props}}
