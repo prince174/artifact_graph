@@ -115,6 +115,7 @@ async def collect_live():
                     edges.append({"source": bid, "target": iid, "relation": "pushes", "evidence": source.path})
                     pushed_images.append({"image": push["image"], "engine": push["engine"], "evidence": source.path, **manifest})
             artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
+            aid = None
             if publishes_sbom(artifact_rules):
                 aid = f"artifact:{bid}/sbom.json"
                 nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json", "rule": artifact_rules})
@@ -130,6 +131,10 @@ async def collect_live():
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
+                for image in node["pushedImages"]:
+                    edges.append({"source": run_id, "target": f"image:{image['image']}", "relation": "pushed_image"})
+                if aid and node["sbomArtifacts"]:
+                    edges.append({"source": run_id, "target": aid, "relation": "produced_sbom"})
             for dependency in detail.get("snapshot-dependencies", {}).get("snapshot-dependency", []):
                 if source_id := dependency.get("source-buildType", {}).get("id"):
                     edges.append({"source": bid, "target": f"build-type:{source_id}", "relation": "snapshot_depends_on"})
@@ -178,10 +183,12 @@ def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) ->
         "label": f"#{build.get('number', build['id'])}",
         **{k: v for k, v in build.items() if k != "id"},
         "pushedImages": actual_images,
+        "hasImagePush": bool(actual_images),
         "sbomArtifacts": [
             {**artifact, "relatedImages": [image.get("digest") or image["image"] for image in actual_images]}
             for artifact in artifacts if artifact.get("name", "").lower() == "sbom.json"
         ],
+        "hasSbom": any(artifact.get("name", "").lower() == "sbom.json" for artifact in artifacts),
     }
 
 

@@ -23,3 +23,11 @@ def test_detail_panel_closes_on_background_header_and_escape():
     assert "if(e.key==='Escape')closeDetail()" in PAGE
     assert "document.querySelector('header').addEventListener('click',closeDetail)" in PAGE
     assert "cy.$(':selected').unselect()" in PAGE
+
+
+def test_actual_pushes_and_sboms_have_distinct_graph_markers():
+    assert "node[?hasImagePush]" in PAGE
+    assert "node[?hasSbom]" in PAGE
+    assert "edge.actual-push" in PAGE
+    assert "edge.actual-sbom" in PAGE
+    assert "push image" in PAGE

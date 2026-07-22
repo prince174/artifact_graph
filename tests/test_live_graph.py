@@ -61,6 +61,8 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
     assert by_id["build:42"]["sbomArtifacts"][0]["path"] == "artifacts/build/sbom.json"
     assert ("repo:workspace/api", "build-type:Demo_01", "built_by") in relations
     assert ("build-type:Demo_01", "build:42", "ran_as") in relations
+    assert ("build:42", "image:registry:5000/api:1", "pushed_image") in relations
+    assert ("build:42", "artifact:build-type:Demo_01/sbom.json", "produced_sbom") in relations
     assert ("build-type:Demo_01", "image:registry:5000/api:1", "pushes") in relations
     assert ("build-type:Demo_01", "artifact:build-type:Demo_01/sbom.json", "publishes") in relations
     assert ("image:registry:5000/api:1", "artifact:build-type:Demo_01/sbom.json", "described_by") in relations

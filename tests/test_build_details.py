@@ -37,10 +37,13 @@ def test_successful_build_has_actual_pushes_and_only_sbom_artifacts():
     node = build_node(build, images, artifacts)
     assert node["id"] == "build:42"
     assert node["pushedImages"] == images
+    assert node["hasImagePush"] is True
+    assert node["hasSbom"] is True
     assert node["sbomArtifacts"] == [{**artifacts[1], "relatedImages": ["registry/service:1"]}]
 
 
 def test_failed_build_does_not_claim_image_was_pushed():
     node = build_node({"id": 7, "status": "FAILURE"}, [{"image": "registry/service:1"}], [{"name": "sbom.json"}])
     assert node["pushedImages"] == []
+    assert node["hasImagePush"] is False
     assert node["sbomArtifacts"][0]["relatedImages"] == []
