@@ -1,6 +1,7 @@
 import json
 import re
 import asyncio
+import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from .analyzer import find_pushes, publishes_sbom, resolve_teamcity_parameters
@@ -9,6 +10,7 @@ from .config import settings
 from .demo import dataset
 from .models import Edge, Node, Scan, SessionLocal
 from .source_analysis import expand_scripts
+from .registry import RegistryCollector
 
 
 refresh_lock = asyncio.Lock()
@@ -66,6 +68,8 @@ async def refresh():
 
 async def collect_live():
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
+    registry = RegistryCollector() if settings.registry_enabled else None
+    manifest_cache = {}
     nodes, edges, repo_by_url, repo_records = [], [], {}, {}
     try:
         async for repo in bb.repositories():
@@ -102,14 +106,22 @@ async def collect_live():
             for source in sources:
                 for push in find_pushes(source.text):
                     iid = f"image:{push['image']}"
-                    nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"]})
+                    if push["image"] not in manifest_cache:
+                        manifest_cache[push["image"]] = await registry_manifest(registry, push["image"])
+                    manifest = manifest_cache[push["image"]]
+                    nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"], **manifest})
                     edges.append({"source": bid, "target": iid, "relation": "pushes", "evidence": source.path})
-                    pushed_images.append({"image": push["image"], "engine": push["engine"], "evidence": source.path})
+                    pushed_images.append({"image": push["image"], "engine": push["engine"], "evidence": source.path, **manifest})
             artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
             if publishes_sbom(artifact_rules):
                 aid = f"artifact:{bid}/sbom.json"
                 nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json", "rule": artifact_rules})
                 edges.append({"source": bid, "target": aid, "relation": "publishes", "evidence": artifact_rules})
+                for image in pushed_images:
+                    edges.append({
+                        "source": f"image:{image['image']}", "target": aid, "relation": "described_by",
+                        "confidence": "same_build_configuration",
+                    })
             for build in await tc.builds(detail["id"]):
                 artifacts = await tc.artifacts(build["id"])
                 node = build_node(build, pushed_images, artifacts)
@@ -125,6 +137,8 @@ async def collect_live():
         return deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
     finally:
         await bb.close(); await tc.close()
+        if registry:
+            await registry.close()
 
 
 def normalize_url(url: str):
@@ -155,11 +169,26 @@ def deduplicate(items, keys=("id",)):
 
 def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) -> dict:
     successful = build.get("status") == "SUCCESS"
+    actual_images = pushed_images if successful else []
     return {
         "id": f"build:{build['id']}",
         "kind": "build",
         "label": f"#{build.get('number', build['id'])}",
         **{k: v for k, v in build.items() if k != "id"},
-        "pushedImages": pushed_images if successful else [],
-        "sbomArtifacts": [artifact for artifact in artifacts if artifact.get("name", "").lower() == "sbom.json"],
+        "pushedImages": actual_images,
+        "sbomArtifacts": [
+            {**artifact, "relatedImages": [image.get("digest") or image["image"] for image in actual_images]}
+            for artifact in artifacts if artifact.get("name", "").lower() == "sbom.json"
+        ],
     }
+
+
+async def registry_manifest(registry, image: str) -> dict:
+    if registry is None:
+        return {}
+    try:
+        return await registry.manifest(image) or {"registryStatus": "external"}
+    except httpx.HTTPStatusError as exc:
+        return {"registryStatus": "unavailable", "registryStatusCode": exc.response.status_code}
+    except httpx.TransportError:
+        return {"registryStatus": "unavailable"}

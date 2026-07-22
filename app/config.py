@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     teamcity_url: str = "http://localhost:8111"
     teamcity_public_url: str = "http://localhost:8111"
     teamcity_token: str = ""
+    registry_enabled: bool = False
+    registry_provider: str = "docker"
+    registry_url: str = "http://localhost:5000"
+    registry_public_url: str = "http://localhost:5000"
+    registry_username: str = ""
+    registry_token: str = ""
     verify_tls: bool = True
 
 

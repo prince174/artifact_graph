@@ -76,3 +76,21 @@ the running ten-repository fixture, including node counts and repository search:
 ```bash
 python scripts/validate_live.py --url http://localhost:18081 --repository java-maven-api
 ```
+
+## Registry and Nexus
+
+The scanner reads OCI manifests through the Docker Registry HTTP API v2 and records
+the immutable digest on image and build nodes. The same client supports a Nexus
+Docker hosted/proxy endpoint:
+
+```env
+REGISTRY_ENABLED=true
+REGISTRY_PROVIDER=nexus
+REGISTRY_URL=https://nexus.internal.example:5001
+REGISTRY_PUBLIC_URL=https://nexus.example:5001
+REGISTRY_USERNAME=artifact-graph-reader
+REGISTRY_TOKEN=read-only-token
+```
+
+Use a read-only account. `REGISTRY_URL` is the address available inside the graph
+container; `REGISTRY_PUBLIC_URL` is used for links shown in the browser.

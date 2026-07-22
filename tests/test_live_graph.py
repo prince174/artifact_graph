@@ -65,6 +65,7 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
     assert ("build-type:Demo_01", "build:42", "ran_as") in relations
     assert ("build-type:Demo_01", "image:registry:5000/api:1", "pushes") in relations
     assert ("build-type:Demo_01", "artifact:build-type:Demo_01/sbom.json", "publishes") in relations
+    assert ("image:registry:5000/api:1", "artifact:build-type:Demo_01/sbom.json", "described_by") in relations
     assert ("build-type:Demo_01", "build-type:Compile", "snapshot_depends_on") in relations
     assert ("build-type:Demo_01", "build-type:Package", "uses_artifacts_from") in relations
     push_edge = next(edge for edge in edges if edge["relation"] == "pushes")
