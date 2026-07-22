@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from .layout import layered_positions
+from .filters import filter_graph
 from .models import Base, Edge, Node, Scan, SessionLocal, engine
 from .service import refresh
 from .subgraph import select_visible
@@ -31,12 +32,17 @@ def index(): return PAGE
 
 
 @app.get("/api/graph")
-def graph(q: str = ""):
+def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, since_days: int = 0):
     with SessionLocal() as db:
         nodes = db.query(Node).all(); edges = db.query(Edge).all()
     result_nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in nodes]
     result_edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in edges]
     result_nodes, result_edges = select_visible(result_nodes, result_edges, q)
+    result_nodes, result_edges = filter_graph(
+        result_nodes, result_edges, bb_project=bb_project, tc_project=tc_project,
+        status=status_filter, engine=engine_filter, has_image=has_image, has_sbom=has_sbom,
+        since_days=max(0, since_days),
+    )
     return {"nodes": result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges)}
 
 

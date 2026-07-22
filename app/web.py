@@ -1,39 +1,39 @@
-PAGE = r'''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Artefact Graph</title>
-<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
-<style>html,body{height:100%;margin:0;font:14px system-ui;background:#0d1117;color:#e6edf3}header{height:58px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid #30363d}input{width:340px;padding:9px 12px;border:1px solid #30363d;border-radius:7px;background:#161b22;color:white}button{padding:9px 12px;background:#238636;border:0;border-radius:7px;color:white;cursor:pointer}.graph{height:calc(100% - 59px);position:relative}.columns{position:absolute;top:10px;left:0;right:0;display:grid;grid-template-columns:34% 33% 33%;z-index:1;pointer-events:none;color:#8b949e;text-align:center;font-size:12px;text-transform:uppercase;letter-spacing:.08em}.columns span{padding-bottom:8px;border-bottom:1px solid #21262d}#cy{height:100%}#detail{position:absolute;right:16px;top:75px;width:340px;max-height:70%;overflow:auto;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;display:none;z-index:2}pre{white-space:pre-wrap;word-break:break-word;color:#9da7b3}.status{margin-left:auto;color:#9da7b3}a{color:#58a6ff}.detail-list{margin:8px 0;padding-left:20px}.detail-label{color:#8b949e;margin-top:10px}</style></head>
-<body><header><strong>Artefact Graph</strong><input id="q" placeholder="Поиск по имени репозитория"><button onclick="load()">Найти</button><button onclick="refresh()">Обновить данные</button><span class="status" id="status"></span></header><div class="graph"><div class="columns"><span>Bitbucket: проекты / репозитории</span><span>TeamCity: build configurations</span><span>Билды / артефакты</span></div><div id="cy"></div></div><div id="detail"></div>
+PAGE = r'''<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Artifact Graph</title><script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<style>
+html,body{height:100%;margin:0;font:14px system-ui;background:#0d1117;color:#e6edf3}header{min-height:58px;display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid #30363d;box-sizing:border-box;flex-wrap:wrap}input,select{padding:8px 10px;border:1px solid #30363d;border-radius:7px;background:#161b22;color:white}input{width:260px}button{padding:8px 11px;background:#238636;border:0;border-radius:7px;color:white;cursor:pointer}button.secondary{background:#30363d}.graph{height:calc(100% - 75px);position:relative}.columns{position:absolute;top:10px;left:0;right:0;display:grid;grid-template-columns:34% 33% 33%;z-index:1;pointer-events:none;color:#8b949e;text-align:center;font-size:12px;text-transform:uppercase;letter-spacing:.08em}.columns span{padding-bottom:8px;border-bottom:1px solid #21262d}#cy{height:100%}#detail{position:absolute;right:16px;top:92px;width:360px;max-height:72%;overflow:auto;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;display:none;z-index:2;box-shadow:0 8px 30px #0008}.detail-title{font-size:17px;margin-bottom:8px}.detail-label{color:#8b949e;margin-top:12px;font-size:12px;text-transform:uppercase}.detail-list{margin:6px 0;padding-left:20px}pre{white-space:pre-wrap;word-break:break-word;color:#9da7b3}a{color:#58a6ff}.status{margin-left:auto;color:#9da7b3}.hint{font-size:12px;color:#8b949e}
+</style></head><body>
+<header><strong>Artifact Graph</strong><input id="q" placeholder="Поиск по имени репозитория">
+<select id="bbProject"><option value="">Все проекты BB</option></select><select id="tcProject"><option value="">Все проекты TC</option></select>
+<select id="statusFilter"><option value="">Любой статус</option><option>SUCCESS</option><option>FAILURE</option></select>
+<select id="engineFilter"><option value="">Docker и Podman</option><option value="docker">Docker</option><option value="podman">Podman</option></select>
+<select id="imageFilter"><option value="">С образом / без</option><option value="true">Есть image</option><option value="false">Нет image</option></select>
+<select id="sbomFilter"><option value="">С SBOM / без</option><option value="true">Есть SBOM</option><option value="false">Нет SBOM</option></select>
+<select id="sinceDays"><option value="0">За всё время</option><option value="1">24 часа</option><option value="7">7 дней</option><option value="30">30 дней</option></select>
+<button onclick="load()">Применить</button><button class="secondary" onclick="resetFilters()">Сбросить</button><button class="secondary" onclick="expandAll()">Развернуть всё</button><button onclick="refresh()">Обновить</button><span class="status" id="status"></span></header>
+<div class="graph"><div class="columns"><span>Bitbucket: проекты / репозитории</span><span>TeamCity: build configurations</span><span>Билды / образы / SBOM</span></div><div id="cy"></div></div><div id="detail"></div>
 <script>
 const colors={bb_project:'#8250df',repository:'#2f81f7',tc_project:'#d29922',build_configuration:'#f0883e',build:'#8b949e',container_image:'#3fb950',sbom:'#f778ba'};
-let cy;
-async function load(){
-  const q=document.getElementById('q').value;
-  const g=await fetch('/api/graph?q='+encodeURIComponent(q)).then(r=>r.json());
-  const byId=Object.fromEntries(g.nodes.map(n=>[n.id,n]));
-  const els=[...g.nodes.map(n=>({data:n,position:g.positions[n.id]})),...g.edges.map((e,i)=>({data:{id:'e'+i,...e,label:e.relation},classes:byId[e.source]?.kind==='tc_project'?'tc-containment':''}))];
-  if(cy)cy.destroy();
-  cy=cytoscape({container:document.getElementById('cy'),elements:els,style:[
-    {selector:'node',style:{'background-color':e=>colors[e.data('kind')]||'#8b949e','label':'data(label)','color':'#e6edf3','font-size':11,'text-valign':'bottom','text-margin-y':7,'width':32,'height':32}},
-    {selector:'node[kind = "build"][status = "SUCCESS"]',style:{'background-color':'#3fb950'}},
-    {selector:'node[kind = "build"][status = "FAILURE"]',style:{'background-color':'#f85149'}},
-    {selector:'edge',style:{'width':1.5,'line-color':'#484f58','target-arrow-color':'#484f58','target-arrow-shape':'triangle','curve-style':'straight','label':'data(label)','font-size':8,'color':'#8b949e','text-background-color':'#0d1117','text-background-opacity':1}},
-    {selector:'edge.tc-containment',style:{'display':'none'}},
-    {selector:':selected',style:{'border-width':3,'border-color':'#fff'}}
-  ],layout:{name:'preset',fit:true,padding:70},minZoom:.25,maxZoom:2.5,wheelSensitivity:.18});
-  cy.on('tap','node',e=>showDetail(e.target.data()));
-  status();
-}
-async function status(){const s=await fetch('/api/status').then(r=>r.json());document.getElementById('status').textContent=s.mode+' · '+(s.lastScan?.message||'нет скана')}
-async function refresh(){await fetch('/api/refresh',{method:'POST'});setTimeout(load,1200)}
-function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
-function safeLink(url,label){return /^https?:\/\//.test(url||'')?'<a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(label)+'</a>':esc(label)}
-function showDetail(d){
-  const box=document.getElementById('detail');box.style.display='block';
-  let html='<b>'+esc(d.label)+'</b>';
-  if(d.webUrl||d.url)html+='<div>'+safeLink(d.webUrl||d.url,'Открыть источник')+'</div>';
-  if(d.status)html+='<div class="detail-label">Статус</div><div>'+esc(d.status)+(d.statusText?' · '+esc(d.statusText):'')+'</div>';
-  if(d.pushedImages?.length)html+='<div class="detail-label">Фактически выполненные push-команды</div><ul class="detail-list">'+d.pushedImages.map(x=>'<li>'+esc(x.engine+' push '+x.image)+'</li>').join('')+'</ul>';
-  if(d.sbomArtifacts?.length)html+='<div class="detail-label">SBOM артефакты</div><ul class="detail-list">'+d.sbomArtifacts.map(x=>'<li>'+safeLink(x.url,x.path)+'</li>').join('')+'</ul>';
-  html+='<pre>'+esc(JSON.stringify(d,null,2))+'</pre>';box.innerHTML=html;
-}
-document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')load()});load();
+const collapsible=new Set(['bb_project','repository','build_configuration']);let cy,baseGraph,collapsed=new Set();
+function params(){const p=new URLSearchParams(),map={q:'q',bb_project:'bbProject',tc_project:'tcProject',status_filter:'statusFilter',engine_filter:'engineFilter',has_image:'imageFilter',has_sbom:'sbomFilter',since_days:'sinceDays'};for(const [key,id] of Object.entries(map)){const value=document.getElementById(id).value;if(value&&!(key==='since_days'&&value==='0'))p.set(key,value)}return p}
+async function init(){baseGraph=await fetch('/api/graph').then(check);fillOptions('bbProject',baseGraph.nodes.filter(n=>n.kind==='bb_project').map(n=>n.label));fillOptions('tcProject',baseGraph.nodes.filter(n=>n.kind==='tc_project').map(n=>n.label));render(baseGraph);status()}
+function fillOptions(id,values){const select=document.getElementById(id);for(const value of [...new Set(values)].sort())select.add(new Option(value,value))}
+async function load(){const g=await fetch('/api/graph?'+params()).then(check);render(g);status()}
+function render(g){const byId=Object.fromEntries(g.nodes.map(n=>[n.id,n]));const els=[...g.nodes.map(n=>({data:n,position:g.positions[n.id]})),...g.edges.map((e,i)=>({data:{id:'e'+i,...e,label:e.relation},classes:[byId[e.source]?.kind==='tc_project'?'tc-containment':'',e.relation.includes('depends')||e.relation==='uses_artifacts_from'?'dependency':''].join(' ')}))];if(cy)cy.destroy();cy=cytoscape({container:document.getElementById('cy'),elements:els,style:[
+{selector:'node',style:{'background-color':e=>colors[e.data('kind')]||'#8b949e','label':'data(label)','color':'#e6edf3','font-size':11,'text-valign':'bottom','text-margin-y':7,'width':32,'height':32}},
+{selector:'node[kind = "build"][status = "SUCCESS"]',style:{'background-color':'#3fb950'}},{selector:'node[kind = "build"][status = "FAILURE"]',style:{'background-color':'#f85149'}},
+{selector:'edge',style:{'width':1.5,'line-color':'#484f58','target-arrow-color':'#484f58','target-arrow-shape':'triangle','curve-style':'straight','label':'data(label)','font-size':8,'color':'#8b949e','text-background-color':'#0d1117','text-background-opacity':1}},
+{selector:'edge.dependency',style:{'line-style':'dashed','line-color':'#a371f7','target-arrow-color':'#a371f7','curve-style':'taxi'}},{selector:'edge.tc-containment',style:{'display':'none'}},{selector:':selected',style:{'border-width':3,'border-color':'#fff'}}],layout:{name:'preset',fit:true,padding:70},minZoom:.2,maxZoom:3,wheelSensitivity:.18});cy.on('tap','node',e=>showDetail(e.target.data()));cy.on('dbltap','node',e=>{if(collapsible.has(e.target.data('kind')))toggleCollapse(e.target.id())});applyCollapsed()}
+function descendants(root){const allowed=new Set(['contains','built_by','ran_as','pushes','publishes','described_by']);const found=new Set(),queue=[root];while(queue.length){const id=queue.shift();cy.edges(`[source = "${id}"]`).forEach(edge=>{if(allowed.has(edge.data('relation'))&&!found.has(edge.data('target'))){found.add(edge.data('target'));queue.push(edge.data('target'))}})}return found}
+function toggleCollapse(id){collapsed.has(id)?collapsed.delete(id):collapsed.add(id);applyCollapsed()}
+function applyCollapsed(){cy.nodes().show();for(const id of collapsed)for(const child of descendants(id))cy.getElementById(child).hide()}
+function expandAll(){collapsed.clear();if(cy)cy.elements().show()}
+function resetFilters(){for(const id of ['q','bbProject','tcProject','statusFilter','engineFilter','imageFilter','sbomFilter'])document.getElementById(id).value='';document.getElementById('sinceDays').value='0';collapsed.clear();load()}
+function showDetail(d){const box=document.getElementById('detail');box.style.display='block';let html='<div class="detail-title">'+esc(d.label)+'</div>';
+if(d.webUrl||d.url)html+='<div>'+safeLink(d.webUrl||d.url,'Открыть источник')+'</div>';if(d.status)html+=field('Статус',esc(d.status)+(d.statusText?' · '+esc(d.statusText):''));if(d.finishDate)html+=field('Завершён',esc(d.finishDate));if(d.digest)html+=field('Digest','<code>'+esc(d.digest)+'</code>');if(d.manifestUrl)html+='<div>'+safeLink(d.manifestUrl,'Открыть manifest')+'</div>';
+if(d.pushedImages?.length)html+=list('Выполненные push',d.pushedImages.map(x=>esc(x.engine+' push '+x.image)+(x.digest?'<br><code>'+esc(x.digest)+'</code>':'')));if(d.sbomArtifacts?.length)html+=list('SBOM артефакты',d.sbomArtifacts.map(x=>safeLink(x.url,x.path)+(x.relatedImages?.length?'<br><span class="hint">image: '+esc(x.relatedImages.join(', '))+'</span>':'')));if(d.evidencePaths?.length)html+=list('Источники',d.evidencePaths.map(esc));if(collapsible.has(d.kind))html+='<button id="collapseButton" class="secondary">Свернуть / развернуть ветку</button>';html+='<details><summary>Технические данные</summary><pre>'+esc(JSON.stringify(d,null,2))+'</pre></details>';box.innerHTML=html;const button=document.getElementById('collapseButton');if(button)button.onclick=()=>toggleCollapse(d.id)}
+function field(label,value){return '<div class="detail-label">'+esc(label)+'</div><div>'+value+'</div>'}function list(label,items){return '<div class="detail-label">'+esc(label)+'</div><ul class="detail-list">'+items.map(x=>'<li>'+x+'</li>').join('')+'</ul>'}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function safeLink(url,label){return /^https?:\/\//.test(url||'')?'<a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(label)+'</a>':esc(label)}async function check(response){if(!response.ok)throw new Error(await response.text());return response.json()}
+async function status(){const s=await fetch('/api/status').then(check);document.getElementById('status').textContent=s.mode+' · '+(s.lastScan?.message||'нет скана')}async function refresh(){await fetch('/api/refresh',{method:'POST'}).then(check);setTimeout(load,1500)}document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')load()});init();
 </script></body></html>'''
