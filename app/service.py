@@ -1,5 +1,6 @@
 import json
 import re
+import asyncio
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from .analyzer import find_pushes, publishes_sbom
@@ -10,38 +11,57 @@ from .models import Edge, Node, Scan, SessionLocal
 from .source_analysis import expand_scripts
 
 
+refresh_lock = asyncio.Lock()
+
+
 def _save(nodes, edges):
     with SessionLocal.begin() as db:
-        db.query(Edge).delete()
-        db.query(Node).delete()
+        node_ids = {item["id"] for item in nodes}
+        edge_keys = {(item["source"], item["target"], item["relation"]) for item in edges}
+        existing_nodes = {row.id: row for row in db.query(Node).all()}
+        existing_edges = {(row.source, row.target, row.relation): row for row in db.query(Edge).all()}
         for item in nodes:
             core = {k: item[k] for k in ("id", "kind", "label")}
             data = {k: v for k, v in item.items() if k not in core}
-            db.add(Node(**core, data=json.dumps(data)))
+            if row := existing_nodes.get(item["id"]):
+                row.kind, row.label, row.data = core["kind"], core["label"], json.dumps(data)
+            else:
+                db.add(Node(**core, data=json.dumps(data)))
         for item in edges:
             core = {k: item[k] for k in ("source", "target", "relation")}
             data = {k: v for k, v in item.items() if k not in core}
-            db.add(Edge(**core, data=json.dumps(data)))
+            key = (core["source"], core["target"], core["relation"])
+            if row := existing_edges.get(key):
+                row.data = json.dumps(data)
+            else:
+                db.add(Edge(**core, data=json.dumps(data)))
+        for node_id, row in existing_nodes.items():
+            if node_id not in node_ids:
+                db.delete(row)
+        for key, row in existing_edges.items():
+            if key not in edge_keys:
+                db.delete(row)
 
 
 async def refresh():
-    with SessionLocal.begin() as db:
-        scan = Scan()
-        db.add(scan)
-    try:
-        if settings.app_mode == "demo":
-            nodes, edges = dataset()
-        else:
-            nodes, edges = await collect_live()
-        _save(nodes, edges)
-        status, message = "success", f"{len(nodes)} nodes, {len(edges)} edges"
-    except Exception as exc:
-        status, message = "failed", str(exc)
-        raise
-    finally:
+    async with refresh_lock:
         with SessionLocal.begin() as db:
-            row = db.get(Scan, scan.id)
-            row.status, row.message, row.finished_at = status, message, datetime.now(timezone.utc)
+            scan = Scan()
+            db.add(scan)
+        try:
+            if settings.app_mode == "demo":
+                nodes, edges = dataset()
+            else:
+                nodes, edges = await collect_live()
+            _save(nodes, edges)
+            status, message = "success", f"{len(nodes)} nodes, {len(edges)} edges"
+        except Exception as exc:
+            status, message = "failed", str(exc)
+            raise
+        finally:
+            with SessionLocal.begin() as db:
+                row = db.get(Scan, scan.id)
+                row.status, row.message, row.finished_at = status, message, datetime.now(timezone.utc)
 
 
 async def collect_live():

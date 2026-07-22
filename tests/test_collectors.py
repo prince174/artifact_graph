@@ -1,7 +1,8 @@
 import httpx
 import pytest
 
-from app.collectors import BitbucketCloudCollector, BitbucketDataCenterCollector, Repository, teamcity_properties
+from app.collectors import ApiClient, BitbucketCloudCollector, BitbucketDataCenterCollector, Repository, TeamCityCollector, teamcity_properties
+from app.config import settings
 from app.service import normalize_url
 
 
@@ -47,3 +48,76 @@ def test_reads_teamcity_settings_properties():
         "artifactRules": "**/sbom.json => artifacts",
         "buildNumberCounter": "1",
     }
+
+
+@pytest.mark.asyncio
+async def test_api_retries_transient_status_with_backoff(monkeypatch):
+    calls = 0
+    sleeps = []
+
+    def handler(_):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503 if calls == 1 else 200, json={"ok": True})
+
+    monkeypatch.setattr(settings, "api_retry_attempts", 3)
+    monkeypatch.setattr(settings, "api_retry_backoff_seconds", 0.25)
+    monkeypatch.setattr("app.collectors.asyncio.sleep", lambda delay: _record_sleep(sleeps, delay))
+    collector = ApiClient("http://service", "token")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://service")
+    try:
+        assert await collector.get_json("/data") == {"ok": True}
+    finally:
+        await collector.close()
+    assert calls == 2
+    assert sleeps == [0.25]
+
+
+@pytest.mark.asyncio
+async def test_api_does_not_retry_permanent_client_error(monkeypatch):
+    calls = 0
+
+    def handler(_):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(404, json={"error": "missing"})
+
+    monkeypatch.setattr(settings, "api_retry_attempts", 4)
+    collector = ApiClient("http://service", "token")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://service")
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            await collector.get_json("/missing")
+    finally:
+        await collector.close()
+    assert calls == 1
+
+
+async def _record_sleep(sleeps, delay):
+    sleeps.append(delay)
+
+
+@pytest.mark.asyncio
+async def test_teamcity_build_types_are_paginated():
+    starts = []
+
+    def handler(request):
+        start = int(request.url.params["locator"].split(",")[0].split(":")[1])
+        starts.append(start)
+        size = 100 if start == 0 else 1
+        return httpx.Response(200, json={
+            "buildType": [{"id": f"Build_{start + i}"} for i in range(size)],
+            **({"nextHref": "/next"} if start == 0 else {}),
+        })
+
+    collector = TeamCityCollector("http://teamcity", "token")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://teamcity")
+    try:
+        result = await collector.build_types()
+    finally:
+        await collector.close()
+    assert len(result) == 101
+    assert starts == [0, 100]

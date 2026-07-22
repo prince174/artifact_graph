@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
 
@@ -37,9 +38,23 @@ class ApiClient:
         )
 
     async def get_json(self, path: str, **params):
-        response = await self.client.get(path, params=params)
-        response.raise_for_status()
-        return response.json()
+        attempts = max(1, settings.api_retry_attempts)
+        for attempt in range(attempts):
+            response = None
+            try:
+                response = await self.client.get(path, params=params)
+                if response.status_code not in {429, 500, 502, 503, 504}:
+                    response.raise_for_status()
+                    return response.json()
+                response.raise_for_status()
+            except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code not in {429, 500, 502, 503, 504}:
+                    raise
+                if attempt + 1 >= attempts:
+                    raise
+                retry_after = response.headers.get("Retry-After") if response is not None else None
+                delay = float(retry_after) if retry_after and retry_after.isdigit() else settings.api_retry_backoff_seconds * (2 ** attempt)
+                await asyncio.sleep(delay)
 
     async def close(self):
         await self.client.aclose()
@@ -114,8 +129,20 @@ class BitbucketCloudCollector(ApiClient):
 
 class TeamCityCollector(ApiClient):
     async def build_types(self):
-        data = await self.get_json("/app/rest/buildTypes", fields="buildType(id,name,projectId,webUrl,href)")
-        return data.get("buildType", [])
+        result, start, page_size = [], 0, 100
+        while True:
+            data = await self.get_json(
+                "/app/rest/buildTypes", locator=f"start:{start},count:{page_size}",
+                fields="count,nextHref,buildType(id,name,projectId,webUrl,href)",
+            )
+            page = data.get("buildType", [])
+            result.extend(page)
+            if not data.get("nextHref") and len(page) < page_size:
+                break
+            start += len(page)
+            if not page:
+                break
+        return result
 
     async def build_type(self, build_type_id: str):
         fields = "id,name,projectId,webUrl,settings(property(name,value)),steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies,artifact-dependencies"
