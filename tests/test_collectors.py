@@ -32,6 +32,31 @@ async def test_datacenter_maps_api_response_to_same_contract():
     assert repos[0].provider == "bitbucket_dc"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("collector_factory", [
+    lambda: BitbucketCloudCollector("acme", "token", "reader@example.com"),
+    lambda: BitbucketDataCenterCollector("http://bb", "token"),
+])
+async def test_repository_files_are_cached_during_scan(collector_factory):
+    calls = 0
+    collector = collector_factory()
+
+    def handler(_):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, text="docker push registry/api:1")
+
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://provider")
+    repo = Repository("provider", "acme", "DEMO", "Demo", "api", "API", "url", (), "main")
+    try:
+        assert await collector.file_text(repo, "pom.xml") == "docker push registry/api:1"
+        assert await collector.file_text(repo, "pom.xml") == "docker push registry/api:1"
+    finally:
+        await collector.close()
+    assert calls == 1
+
+
 def test_clone_url_normalization_matches_https_and_ssh():
     expected = "bitbucket.org/acme/api"
     assert normalize_url("https://user@bitbucket.org/acme/api.git") == expected

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.teamcity_setup import authorize_connected_agents, command_line_script_step
 from app.fixtures import REPOS, files_for
+from app.pipeline import PIPELINE_STAGES, product_project_id, stage_build_id, stage_script
 from bootstrap import request, tc_put
 
 WORKSPACE = os.environ["BITBUCKET_WORKSPACE"]
@@ -98,8 +99,22 @@ def bootstrap_teamcity():
         response = client.post("/app/rest/projects", json={"id": "Demo", "name": "Artefact Graph Demo"})
         if response.status_code not in (200, 201, 400):
             raise RuntimeError(response.text)
+        for index in range(1, len(REPOS) + 1):
+            legacy_id = f"Demo_{index:02d}"
+            legacy = client.get(f"/app/rest/buildTypes/id:{legacy_id}")
+            if legacy.status_code == 200:
+                deleted = client.delete(f"/app/rest/buildTypes/id:{legacy_id}")
+                if deleted.status_code not in (200, 204):
+                    raise RuntimeError(f"delete legacy {legacy_id}: {deleted.status_code} {deleted.text[:500]}")
+                print(f"deleted legacy build configuration {legacy_id}")
         for index, (slug, _stack, _command, sbom) in enumerate(REPOS, 1):
-            vcs_id, build_id = f"Demo_{index:02d}_Vcs", f"Demo_{index:02d}"
+            product_id, vcs_id = product_project_id(index), f"Demo_{index:02d}_Vcs"
+            product = client.get(f"/app/rest/projects/id:{product_id}")
+            if product.status_code == 404:
+                response = client.post("/app/rest/projects", json={
+                    "id": product_id, "name": slug, "parentProject": {"id": "Demo"},
+                })
+                if response.status_code not in (200, 201): raise RuntimeError(response.text)
             props = [
                 {"name": "url", "value": f"https://bitbucket.org/{WORKSPACE}/{slug}.git"},
                 {"name": "branch", "value": "refs/heads/main"},
@@ -107,27 +122,33 @@ def bootstrap_teamcity():
                 {"name": "username", "value": "x-bitbucket-api-token-auth"},
                 {"name": "secure:password", "value": TOKEN},
             ]
-            vcs = {"id": vcs_id, "name": slug, "vcsName": "jetbrains.git", "project": {"id": "Demo"}, "properties": {"property": props}}
+            vcs = {"id": vcs_id, "name": slug, "vcsName": "jetbrains.git", "project": {"id": product_id}, "properties": {"property": props}}
             exists = client.get(f"/app/rest/vcs-roots/id:{vcs_id}")
             if exists.status_code == 404:
                 response = client.post("/app/rest/vcs-roots", json=vcs)
                 if response.status_code not in (200, 201): raise RuntimeError(response.text)
-            build_payload = {"id": build_id, "name": f"{index:02d} Build {slug}", "project": {"id": "Demo"}}
-            exists = client.get(f"/app/rest/buildTypes/id:{build_id}")
-            if exists.status_code == 404:
-                response = client.post("/app/rest/buildTypes", json=build_payload)
-                if response.status_code not in (200, 201): raise RuntimeError(response.text)
-            tc_put(client, f"/app/rest/buildTypes/id:{build_id}/vcs-root-entries", {"vcs-root-entry": [{"id": vcs_id, "vcs-root": {"id": vcs_id}}]})
-            script = "set -eu\nchmod +x ci/build.sh\n./ci/build.sh" + ("\nchmod +x ci/sbom.sh\n./ci/sbom.sh" if sbom else "")
-            tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [command_line_script_step(script)]})
-            if sbom:
+            previous_id = ""
+            for stage in PIPELINE_STAGES:
+                build_id = stage_build_id(index, stage)
+                build_payload = {"id": build_id, "name": stage.name, "project": {"id": product_id}}
+                exists = client.get(f"/app/rest/buildTypes/id:{build_id}")
+                if exists.status_code == 404:
+                    response = client.post("/app/rest/buildTypes", json=build_payload)
+                    if response.status_code not in (200, 201): raise RuntimeError(response.text)
+                tc_put(client, f"/app/rest/buildTypes/id:{build_id}/vcs-root-entries", {"vcs-root-entry": [{"id": vcs_id, "vcs-root": {"id": vcs_id}}]})
+                tc_put(client, f"/app/rest/buildTypes/id:{build_id}/steps", {"step": [command_line_script_step(stage_script(slug, stage, sbom))]})
+                dependencies = {"snapshot-dependency": [] if not previous_id else [{
+                    "type": "snapshot_dependency", "source-buildType": {"id": previous_id},
+                }]}
+                tc_put(client, f"/app/rest/buildTypes/id:{build_id}/snapshot-dependencies", dependencies)
+                artifact_rule = "**/sbom.json => artifacts" if stage.key == "Package" and sbom else ""
                 response = client.put(
-                    f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules",
-                    content="**/sbom.json => artifacts",
+                    f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules", content=artifact_rule,
                     headers={"Content-Type": "text/plain", "Accept": "text/plain"},
                 )
                 if response.status_code not in (200, 201, 204):
                     raise RuntimeError(f"set artifact rules for {build_id}: {response.status_code} {response.text[:500]}")
+                previous_id = build_id
         if TC_READER_USERNAME:
             request(client, "PUT", f"/app/rest/users/username:{TC_READER_USERNAME}/roles/PROJECT_VIEWER/p:Demo", ok=(200, 204))
             print(f"granted PROJECT_VIEWER on Demo to {TC_READER_USERNAME}")

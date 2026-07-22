@@ -61,6 +61,10 @@ class ApiClient:
 
 
 class BitbucketDataCenterCollector(ApiClient):
+    def __init__(self, base_url: str, token: str):
+        super().__init__(base_url, token)
+        self.file_cache = {}
+
     async def repositories(self):
         start = 0
         while True:
@@ -82,20 +86,26 @@ class BitbucketDataCenterCollector(ApiClient):
 
     async def file_text(self, repository, path, revision=None):
         at = revision or f"refs/heads/{repository.default_branch}"
+        cache_key = (repository.project_key, repository.slug, path, at)
+        if cache_key in self.file_cache:
+            return self.file_cache[cache_key]
         response = await self.client.get(
             f"/rest/api/1.0/projects/{repository.project_key}/repos/{repository.slug}/raw/{path}",
             params={"at": at},
         )
         if response.status_code == 404:
+            self.file_cache[cache_key] = None
             return None
         response.raise_for_status()
-        return response.text
+        self.file_cache[cache_key] = response.text
+        return self.file_cache[cache_key]
 
 
 class BitbucketCloudCollector(ApiClient):
     def __init__(self, workspace: str, token: str, email: str = ""):
         super().__init__("https://api.bitbucket.org/2.0", token, basic_user=email)
         self.workspace = workspace
+        self.file_cache = {}
 
     async def repositories(self):
         next_url = f"/repositories/{self.workspace}"
@@ -120,11 +130,16 @@ class BitbucketCloudCollector(ApiClient):
 
     async def file_text(self, repository, path, revision=None):
         revision = revision or repository.default_branch
+        cache_key = (repository.slug, path, revision)
+        if cache_key in self.file_cache:
+            return self.file_cache[cache_key]
         response = await self.client.get(f"/repositories/{self.workspace}/{repository.slug}/src/{revision}/{path}")
         if response.status_code == 404:
+            self.file_cache[cache_key] = None
             return None
         response.raise_for_status()
-        return response.text
+        self.file_cache[cache_key] = response.text
+        return self.file_cache[cache_key]
 
 
 class TeamCityCollector(ApiClient):

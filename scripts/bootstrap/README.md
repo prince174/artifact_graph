@@ -19,7 +19,8 @@ python scripts/bootstrap/bootstrap_cloud.py
 ```
 
 Скрипт создаст проект `DEMO`, 10 приватных репозиториев, типовое наполнение, TeamCity-проект,
-VCS roots и 10 build configurations. Повторный запуск пропускает наполненные репозитории и
+VCS roots, 10 продуктовых TeamCity projects и 40 build configurations: по четыре связанные
+стадии `Test → Build → Package → Deploy` на продукт. Повторный запуск пропускает наполненные репозитории и
 безопасно продолжает загрузку пустых, если предыдущий запуск был прерван.
 
 После bootstrap удалите временный токен. Для приложения создайте отдельную учётную запись и API
@@ -42,7 +43,9 @@ export TEAMCITY_BOOTSTRAP_URL=http://localhost:8111
 python scripts/bootstrap/run_teamcity_builds.py --count 5 --timeout 1800
 ```
 
-Скрипт идемпотентен: он ставит в очередь только недостающее число сборок для каждой конфигурации.
+Скрипт идемпотентен: он ставит в очередь только недостающие сборки до достижения целевого
+минимума каждой конфигурации. Snapshot dependencies могут создать дополнительные Test/Build/Package
+запуски при постановке Deploy.
 
 Для Git-аутентификации bootstrap и TeamCity используют поддерживаемое Bitbucket статическое имя
 `x-bitbucket-api-token-auth`; искать персональный Bitbucket username не требуется.

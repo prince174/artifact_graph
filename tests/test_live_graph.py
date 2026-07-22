@@ -13,9 +13,7 @@ class FakeBitbucket:
         )
 
     async def file_text(self, repository, path, revision=None):
-        if path == "pom.xml":
-            return "<properties><image>registry:5000/api:1</image></properties><command>docker push ${image}</command>"
-        return None
+        return "docker push registry:5000/api:1" if path == "ci/build.sh" else None
 
     async def close(self):
         pass
@@ -69,12 +67,14 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
     assert ("build-type:Demo_01", "build-type:Compile", "snapshot_depends_on") in relations
     assert ("build-type:Demo_01", "build-type:Package", "uses_artifacts_from") in relations
     push_edge = next(edge for edge in edges if edge["relation"] == "pushes")
-    assert "workspace/api/pom.xml" in push_edge["evidence"]
+    assert "workspace/api/ci/build.sh" in push_edge["evidence"]
 
 
 def test_demo_dataset_has_full_ten_repo_five_build_fixture():
     nodes, edges = dataset()
     assert len([node for node in nodes if node["kind"] == "repository"]) == 10
-    assert len([node for node in nodes if node["kind"] == "build_configuration"]) == 10
-    assert len([node for node in nodes if node["kind"] == "build"]) == 50
-    assert len([edge for edge in edges if edge["relation"] == "ran_as"]) == 50
+    assert len([node for node in nodes if node["kind"] == "tc_project"]) == 10
+    assert len([node for node in nodes if node["kind"] == "build_configuration"]) == 40
+    assert len([node for node in nodes if node["kind"] == "build"]) == 200
+    assert len([edge for edge in edges if edge["relation"] == "ran_as"]) == 200
+    assert len([edge for edge in edges if edge["relation"] == "snapshot_depends_on"]) == 30

@@ -13,7 +13,9 @@ Bitbucket подключается через общий контракт `Repos
 docker compose up -d --build postgres graph
 ```
 
-Откройте `http://localhost:8080`. Demo содержит 10 репозиториев и по пять запусков каждой сборки.
+Откройте `http://localhost:8080`. Demo содержит 10 репозиториев. Каждому продукту соответствует
+отдельный TeamCity project с цепочкой `Test → Build and push → Package and SBOM → Deploy` и
+последними пятью запусками каждой стадии.
 Кнопка обновления запускает скан вручную, плановый скан выполняется раз в 60 минут.
 
 ## Bitbucket Cloud

@@ -4,7 +4,7 @@ import time
 def build_type_ids(client, project_id: str) -> list[str]:
     response = client.get(
         "/app/rest/buildTypes",
-        params={"locator": f"project:{project_id}", "fields": "buildType(id)"},
+        params={"locator": f"affectedProject:(id:{project_id})", "fields": "buildType(id)"},
     )
     response.raise_for_status()
     return sorted(item["id"] for item in response.json().get("buildType", []))

@@ -9,7 +9,7 @@ from .collectors import TeamCityCollector, repository_provider, teamcity_propert
 from .config import settings
 from .demo import dataset
 from .models import Edge, Node, Scan, SessionLocal
-from .source_analysis import expand_scripts
+from .source_analysis import build_source_paths, expand_scripts
 from .registry import RegistryCollector
 
 
@@ -97,11 +97,13 @@ async def collect_live():
                     edges.append({"source": repo_id, "target": bid, "relation": "built_by", "confidence": "exact_vcs_url"})
                     linked_repositories.append(repo_records[repo_id])
             scripts = []
+            build_files = []
             parameters = teamcity_properties(detail, "parameters")
             for step in detail.get("steps", {}).get("step", []):
                 props = {p["name"]: p.get("value", "") for p in step.get("properties", {}).get("property", [])}
                 scripts.extend(resolve_teamcity_parameters(v, parameters) for k, v in props.items() if "script" in k.lower())
-            sources = await expand_scripts(bb, linked_repositories, scripts)
+                build_files.extend(build_source_paths(step.get("type", ""), props))
+            sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
             pushed_images = []
             for source in sources:
                 for push in find_pushes(source.text):
