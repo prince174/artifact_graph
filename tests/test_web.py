@@ -25,9 +25,19 @@ def test_detail_panel_closes_on_background_header_and_escape():
     assert "cy.$(':selected').unselect()" in PAGE
 
 
-def test_actual_pushes_and_sboms_have_distinct_graph_markers():
-    assert "node[?hasImagePush]" in PAGE
-    assert "node[?hasSbom]" in PAGE
-    assert "edge.actual-push" in PAGE
-    assert "edge.actual-sbom" in PAGE
-    assert "push image" in PAGE
+def test_node_shapes_colors_and_neutral_edges_follow_visual_language():
+    assert 'node[kind = "bb_project"]' in PAGE and "'width':18" in PAGE
+    assert 'node[kind = "repository"]' in PAGE and "'height':11" in PAGE
+    assert 'node[kind = "tc_project"]' in PAGE and "'shape':'triangle'" in PAGE
+    assert 'node[kind = "build_configuration"]' in PAGE and "'shape':'rectangle'" in PAGE
+    assert 'node[kind = "build"]' in PAGE and "'shape':'ellipse'" in PAGE
+    for color in ("#f2d675", "#e99a95", "#9fd8ad", "#7d8590", "#2f81f7", "#2ea043", "#00b3a4"):
+        assert color in PAGE
+    assert "[?hasSbom][!hasImagePush]" in PAGE
+    assert "[?hasImagePush][!hasSbom]" in PAGE
+    assert "[?hasSbom][?hasImagePush]" in PAGE
+    assert "edge.actual-push" not in PAGE
+    assert "edge.actual-sbom" not in PAGE
+    assert "'line-color':'#484f58'" in PAGE
+    assert "'target-arrow-color':'#484f58'" in PAGE
+    assert "'line-color':'#a371f7'" not in PAGE

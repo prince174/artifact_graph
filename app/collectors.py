@@ -18,6 +18,7 @@ class Repository:
     web_url: str
     clone_urls: tuple[str, ...]
     default_branch: str = "main"
+    active: bool = True
 
 
 class RepositoryProvider(Protocol):
@@ -79,6 +80,7 @@ class BitbucketDataCenterCollector(ApiClient):
                     web_url=_first_href(links.get("self")),
                     clone_urls=tuple(x["href"] for x in links.get("clone", [])),
                     default_branch=(repo.get("defaultBranch") or "main").removeprefix("refs/heads/"),
+                    active=not repo.get("archived", False),
                 )
             if page.get("isLastPage", True):
                 break
@@ -125,6 +127,7 @@ class BitbucketCloudCollector(ApiClient):
                     web_url=_href(links.get("html")) or _href(links.get("self")),
                     clone_urls=tuple(x["href"] for x in links.get("clone", [])),
                     default_branch=(repo.get("mainbranch") or {}).get("name") or "main",
+                    active=not repo.get("is_archived", False) and repo.get("state", "available") != "inactive",
                 )
             next_url = page.get("next")
 
@@ -160,11 +163,11 @@ class TeamCityCollector(ApiClient):
         return result
 
     async def build_type(self, build_type_id: str):
-        fields = "id,name,projectId,webUrl,parameters(property(name,value)),settings(property(name,value)),steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),artifact-dependencies(artifact-dependency(source-buildType(id),properties(property(name,value))))"
+        fields = "id,name,projectId,webUrl,paused,parameters(property(name,value)),settings(property(name,value)),steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),artifact-dependencies(artifact-dependency(source-buildType(id),properties(property(name,value))))"
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
-        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:finished,count:3", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
+        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:3", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
         return data.get("build", [])
 
     async def artifacts(self, build_id: str):

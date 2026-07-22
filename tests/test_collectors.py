@@ -146,3 +146,25 @@ async def test_teamcity_build_types_are_paginated():
         await collector.close()
     assert len(result) == 101
     assert starts == [0, 100]
+
+
+@pytest.mark.asyncio
+async def test_teamcity_requests_paused_configs_and_latest_builds_in_any_state():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"id": "Cfg"} if "/buildTypes/" in request.url.path else {"build": []})
+
+    collector = TeamCityCollector("http://teamcity", "token")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://teamcity")
+    try:
+        await collector.build_type("Cfg")
+        await collector.builds("Cfg")
+    finally:
+        await collector.close()
+
+    assert "paused" in requests[0].url.params["fields"]
+    assert "state:any" in requests[1].url.params["locator"]
+    assert "count:3" in requests[1].url.params["locator"]

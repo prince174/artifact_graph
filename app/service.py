@@ -55,6 +55,7 @@ async def refresh():
                 nodes, edges = dataset()
             else:
                 nodes, edges = await collect_live()
+            annotate_visual_state(nodes, edges)
             _save(nodes, edges)
             status, message = "success", f"{len(nodes)} nodes, {len(edges)} edges"
         except Exception as exc:
@@ -76,8 +77,8 @@ async def collect_live():
             pid = f"bb-project:{repo.namespace}/{repo.project_key}"
             rid = f"repo:{repo.namespace}/{repo.slug}"
             nodes += [
-                {"id": pid, "kind": "bb_project", "label": repo.project_name, "provider": repo.provider},
-                {"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider},
+                {"id": pid, "kind": "bb_project", "label": repo.project_name, "provider": repo.provider, "active": repo.active},
+                {"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider, "active": repo.active},
             ]
             edges.append({"source": pid, "target": rid, "relation": "contains"})
             repo_records[rid] = repo
@@ -86,7 +87,7 @@ async def collect_live():
         for summary in await tc.build_types():
             detail = await tc.build_type(summary["id"])
             bid, pid = f"build-type:{detail['id']}", f"tc-project:{detail['projectId']}"
-            nodes += [{"id": pid, "kind": "tc_project", "label": detail["projectId"]}, {"id": bid, "kind": "build_configuration", "label": detail["name"], "url": detail.get("webUrl")}]
+            nodes += [{"id": pid, "kind": "tc_project", "label": detail["projectId"], "active": True}, {"id": bid, "kind": "build_configuration", "label": detail["name"], "url": detail.get("webUrl"), "active": not detail.get("paused", False)}]
             edges.append({"source": pid, "target": bid, "relation": "contains"})
             roots = detail.get("vcs-root-entries", {}).get("vcs-root-entry", [])
             linked_repositories = []
@@ -126,7 +127,7 @@ async def collect_live():
                         "confidence": "same_build_configuration",
                     })
             for build in await tc.builds(detail["id"]):
-                artifacts = await tc.artifacts(build["id"])
+                artifacts = await tc.artifacts(build["id"]) if build.get("state", "finished") == "finished" else []
                 node = build_node(build, pushed_images, artifacts)
                 run_id = node["id"]
                 nodes.append(node)
@@ -141,7 +142,9 @@ async def collect_live():
             for dependency in detail.get("artifact-dependencies", {}).get("artifact-dependency", []):
                 if source_id := dependency.get("source-buildType", {}).get("id"):
                     edges.append({"source": bid, "target": f"build-type:{source_id}", "relation": "uses_artifacts_from"})
-        return deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
+        nodes, edges = deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
+        annotate_visual_state(nodes, edges)
+        return nodes, edges
     finally:
         await bb.close(); await tc.close()
         if registry:
@@ -175,7 +178,7 @@ def deduplicate(items, keys=("id",)):
 
 
 def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) -> dict:
-    successful = build.get("status") == "SUCCESS"
+    successful = build.get("state", "finished") == "finished" and build.get("status") == "SUCCESS"
     actual_images = pushed_images if successful else []
     return {
         "id": f"build:{build['id']}",
@@ -190,6 +193,47 @@ def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) ->
         ],
         "hasSbom": any(artifact.get("name", "").lower() == "sbom.json" for artifact in artifacts),
     }
+
+
+def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
+    """Propagate actual push/SBOM presence upward through the product chain."""
+    by_id = {node["id"]: node for node in nodes}
+    incoming: dict[str, list[dict]] = {}
+    for edge in edges:
+        incoming.setdefault(edge["target"], []).append(edge)
+
+    relevant = {
+        node["id"] for node in nodes
+        if node["kind"] == "build" and (node.get("hasImagePush") or node.get("hasSbom"))
+    }
+    stages = [
+        ("build_configuration", "ran_as", "build"),
+        ("tc_project", "contains", "build_configuration"),
+        ("repository", "built_by", "build_configuration"),
+        ("bb_project", "contains", "repository"),
+    ]
+    for parent_kind, relation, child_kind in stages:
+        parents = {
+            edge["source"] for child_id in tuple(relevant)
+            for edge in incoming.get(child_id, [])
+            if edge["relation"] == relation
+            and by_id.get(edge["source"], {}).get("kind") == parent_kind
+            and by_id.get(child_id, {}).get("kind") == child_kind
+        }
+        relevant.update(parents)
+
+    for node in nodes:
+        if node["kind"] in {"bb_project", "repository", "tc_project", "build_configuration"}:
+            node.setdefault("active", True)
+            node["hasTargetOutput"] = node["id"] in relevant
+
+    # Container activity is derived from the activity of direct children.
+    for node in nodes:
+        child_kind = {"tc_project": "build_configuration", "bb_project": "repository"}.get(node["kind"])
+        if child_kind:
+            children = [by_id[e["target"]] for e in edges if e["source"] == node["id"] and e["relation"] == "contains" and e["target"] in by_id and by_id[e["target"]]["kind"] == child_kind]
+            if children:
+                node["active"] = any(child.get("active", True) for child in children)
 
 
 async def registry_manifest(registry, image: str) -> dict:
