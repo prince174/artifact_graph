@@ -16,3 +16,10 @@ def test_ui_has_server_filters_and_collapsible_branches():
     assert "function descendants" in PAGE
     assert "expandAll()" in PAGE
     assert "Технические данные" in PAGE
+
+
+def test_detail_panel_closes_on_background_header_and_escape():
+    assert "if(e.target===cy)closeDetail()" in PAGE
+    assert "if(e.key==='Escape')closeDetail()" in PAGE
+    assert "document.querySelector('header').addEventListener('click',closeDetail)" in PAGE
+    assert "cy.$(':selected').unselect()" in PAGE
