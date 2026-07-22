@@ -74,7 +74,7 @@ def test_demo_dataset_has_full_ten_repo_five_build_fixture():
     nodes, edges = dataset()
     assert len([node for node in nodes if node["kind"] == "repository"]) == 10
     assert len([node for node in nodes if node["kind"] == "tc_project"]) == 10
-    assert len([node for node in nodes if node["kind"] == "build_configuration"]) == 40
-    assert len([node for node in nodes if node["kind"] == "build"]) == 200
-    assert len([edge for edge in edges if edge["relation"] == "ran_as"]) == 200
-    assert len([edge for edge in edges if edge["relation"] == "snapshot_depends_on"]) == 30
+    assert len([node for node in nodes if node["kind"] == "build_configuration"]) == 30
+    assert len([node for node in nodes if node["kind"] == "build"]) == 90
+    assert len([edge for edge in edges if edge["relation"] == "ran_as"]) == 90
+    assert len([edge for edge in edges if edge["relation"] == "snapshot_depends_on"]) == 20

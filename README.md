@@ -2,7 +2,7 @@
 
 Python-сервис строит интерактивный граф `Bitbucket repository → TeamCity build configuration → build/image/SBOM`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
-script steps, правило `**/sbom.json => artifacts` и последние пять запусков каждой конфигурации.
+script steps, правило `**/sbom.json => artifacts` и последние три запуска каждой конфигурации.
 
 Bitbucket подключается через общий контракт `RepositoryProvider`. Поддерживаются адаптеры
 `cloud` (основной) и `datacenter` (опциональный).
@@ -14,8 +14,8 @@ docker compose up -d --build postgres graph
 ```
 
 Откройте `http://localhost:8080`. Demo содержит 10 репозиториев. Каждому продукту соответствует
-отдельный TeamCity project с цепочкой `Test → Build and push → Package and SBOM → Deploy` и
-последними пятью запусками каждой стадии.
+отдельный TeamCity project с цепочкой `Test → Build, push and SBOM → Deploy` и
+последними тремя запусками каждой стадии.
 Кнопка обновления запускает скан вручную, плановый скан выполняется раз в 60 минут.
 
 ## Bitbucket Cloud

@@ -109,6 +109,13 @@ def bootstrap_teamcity():
                 print(f"deleted legacy build configuration {legacy_id}")
         for index, (slug, _stack, _command, sbom) in enumerate(REPOS, 1):
             product_id, vcs_id = product_project_id(index), f"Demo_{index:02d}_Vcs"
+            obsolete_id = f"Demo_{index:02d}_Package"
+            obsolete = client.get(f"/app/rest/buildTypes/id:{obsolete_id}")
+            if obsolete.status_code == 200:
+                deleted = client.delete(f"/app/rest/buildTypes/id:{obsolete_id}")
+                if deleted.status_code not in (200, 204):
+                    raise RuntimeError(f"delete obsolete {obsolete_id}: {deleted.status_code} {deleted.text[:500]}")
+                print(f"deleted obsolete build configuration {obsolete_id}")
             product = client.get(f"/app/rest/projects/id:{product_id}")
             if product.status_code == 404:
                 response = client.post("/app/rest/projects", json={
@@ -141,7 +148,7 @@ def bootstrap_teamcity():
                     "type": "snapshot_dependency", "source-buildType": {"id": previous_id},
                 }]}
                 tc_put(client, f"/app/rest/buildTypes/id:{build_id}/snapshot-dependencies", dependencies)
-                artifact_rule = "**/sbom.json => artifacts" if stage.key == "Package" and sbom else ""
+                artifact_rule = "**/sbom.json => artifacts" if stage.key == "Build" and sbom else ""
                 response = client.put(
                     f"/app/rest/buildTypes/id:{build_id}/settings/artifactRules", content=artifact_rule,
                     headers={"Content-Type": "text/plain", "Accept": "text/plain"},

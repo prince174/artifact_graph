@@ -26,5 +26,5 @@ def test_validation_reports_missing_build_history():
     graph = fixture_graph()
     graph["nodes"] = [node for node in graph["nodes"] if node["id"] != "build:build-type:Demo_01_Test/100"]
     graph["positions"].pop("build:build-type:Demo_01_Test/100")
-    with pytest.raises(AssertionError, match="Expected 200 build"):
+    with pytest.raises(AssertionError, match="Expected 90 build"):
         validate_fixture_graph(graph)

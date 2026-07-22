@@ -9,8 +9,7 @@ class PipelineStage:
 
 PIPELINE_STAGES = (
     PipelineStage("Test", "Test"),
-    PipelineStage("Build", "Build and push"),
-    PipelineStage("Package", "Package and SBOM"),
+    PipelineStage("Build", "Build, push and SBOM"),
     PipelineStage("Deploy", "Deploy"),
 )
 
@@ -29,8 +28,6 @@ def stage_script(slug: str, stage: PipelineStage, sbom: bool) -> str:
     if stage.key == "Test":
         return f"{header}\necho test {slug}"
     if stage.key == "Build":
-        return f"{header}\nchmod +x ci/build.sh\n./ci/build.sh"
-    if stage.key == "Package":
-        suffix = "chmod +x ci/sbom.sh\n./ci/sbom.sh" if sbom else f"echo package {slug}"
-        return f"{header}\n{suffix}"
+        suffix = "\nchmod +x ci/sbom.sh\n./ci/sbom.sh" if sbom else ""
+        return f"{header}\nchmod +x ci/build.sh\n./ci/build.sh{suffix}"
     return f"{header}\necho deploy {slug}"

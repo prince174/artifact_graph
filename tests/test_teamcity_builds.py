@@ -51,3 +51,25 @@ def test_run_to_target_refills_after_teamcity_deduplicated_queue(monkeypatch):
     assert counts == {"Demo_01": 3}
     assert scheduled == 3
     assert posts == 3
+
+
+def test_run_to_target_waits_until_created_queue_is_idle(monkeypatch):
+    queue_checks = 0
+
+    def handler(request):
+        nonlocal queue_checks
+        if request.url.path.endswith("/buildTypes"):
+            return httpx.Response(200, json={"buildType": [{"id": "Demo_01"}]})
+        if request.url.path.endswith("/buildQueue"):
+            queue_checks += 1
+            return httpx.Response(200, json={"count": 1 if queue_checks == 1 else 0})
+        if "state:running" in request.url.params["locator"]:
+            return httpx.Response(200, json={"count": 0})
+        return httpx.Response(200, json={"count": 3})
+
+    monkeypatch.setattr("app.teamcity_builds.time.sleep", lambda _: None)
+    with httpx.Client(base_url="http://teamcity", transport=httpx.MockTransport(handler)) as client:
+        counts, scheduled = run_to_target(client, "Demo", 3, interval_seconds=0)
+    assert counts == {"Demo_01": 3}
+    assert scheduled == 0
+    assert queue_checks == 2

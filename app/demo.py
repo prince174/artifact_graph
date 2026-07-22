@@ -37,11 +37,11 @@ def dataset():
                 image_id = f"image:{image}"
                 nodes.append({"id": image_id, "kind": "container_image", "label": image, "engine": engine})
                 edges.append({"source": build_id, "target": image_id, "relation": "pushes", "evidence": command})
-            if stage.key == "Package" and i % 2:
+            if stage.key == "Build" and i % 2:
                 sbom_id = f"artifact:{build_id}/sbom.json"
                 nodes.append({"id": sbom_id, "kind": "sbom", "label": "sbom.json", "rule": "**/sbom.json => artifacts"})
                 edges.append({"source": build_id, "target": sbom_id, "relation": "publishes", "evidence": "**/sbom.json => artifacts"})
-            for n in range(5):
+            for n in range(3):
                 run_id = f"build:{build_id}/{100-n}"
                 nodes.append({"id": run_id, "kind": "build", "label": f"#{100-n}", "status": "SUCCESS" if n != 1 else "FAILURE", "date": (now-timedelta(days=n)).isoformat()})
                 edges.append({"source": build_id, "target": run_id, "relation": "ran_as"})

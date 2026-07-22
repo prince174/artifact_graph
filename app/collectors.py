@@ -164,7 +164,7 @@ class TeamCityCollector(ApiClient):
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
-        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:finished,count:5", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
+        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:finished,count:3", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
         return data.get("build", [])
 
     async def artifacts(self, build_id: str):

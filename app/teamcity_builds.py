@@ -67,7 +67,8 @@ def run_to_target(client, project_id: str, target: int, timeout_seconds: int = 1
     while True:
         counts = {build_type_id: finished_count(client, build_type_id) for build_type_id in build_types}
         if counts and all(count >= target for count in counts.values()):
-            return counts, scheduled
+            if all(active_count(client, build_type_id) == 0 for build_type_id in build_types):
+                return counts, scheduled
         for build_type_id in build_types:
             if counts[build_type_id] < target and active_count(client, build_type_id) == 0:
                 response = client.post("/app/rest/buildQueue", json={"buildType": {"id": build_type_id}})

@@ -13,7 +13,7 @@ from app.teamcity_builds import run_to_target
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--count", type=int, default=5)
+    parser.add_argument("--count", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=1800)
     args = parser.parse_args()
     url = os.getenv("TEAMCITY_BOOTSTRAP_URL", "http://localhost:8111")
