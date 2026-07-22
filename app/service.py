@@ -3,7 +3,7 @@ import re
 import asyncio
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
-from .analyzer import find_pushes, publishes_sbom
+from .analyzer import find_pushes, publishes_sbom, resolve_teamcity_parameters
 from .collectors import TeamCityCollector, repository_provider, teamcity_properties
 from .config import settings
 from .demo import dataset
@@ -93,9 +93,10 @@ async def collect_live():
                     edges.append({"source": repo_id, "target": bid, "relation": "built_by", "confidence": "exact_vcs_url"})
                     linked_repositories.append(repo_records[repo_id])
             scripts = []
+            parameters = teamcity_properties(detail, "parameters")
             for step in detail.get("steps", {}).get("step", []):
                 props = {p["name"]: p.get("value", "") for p in step.get("properties", {}).get("property", [])}
-                scripts.extend(v for k, v in props.items() if "script" in k.lower())
+                scripts.extend(resolve_teamcity_parameters(v, parameters) for k, v in props.items() if "script" in k.lower())
             sources = await expand_scripts(bb, linked_repositories, scripts)
             pushed_images = []
             for source in sources:
@@ -115,6 +116,12 @@ async def collect_live():
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
+            for dependency in detail.get("snapshot-dependencies", {}).get("snapshot-dependency", []):
+                if source_id := dependency.get("source-buildType", {}).get("id"):
+                    edges.append({"source": bid, "target": f"build-type:{source_id}", "relation": "snapshot_depends_on"})
+            for dependency in detail.get("artifact-dependencies", {}).get("artifact-dependency", []):
+                if source_id := dependency.get("source-buildType", {}).get("id"):
+                    edges.append({"source": bid, "target": f"build-type:{source_id}", "relation": "uses_artifacts_from"})
         return deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
     finally:
         await bb.close(); await tc.close()
@@ -133,7 +140,17 @@ def normalize_url(url: str):
 
 
 def deduplicate(items, keys=("id",)):
-    return list({tuple(item[k] for k in keys): item for item in items}.values())
+    result = {}
+    for item in items:
+        key = tuple(item[k] for k in keys)
+        if key in result and (item.get("evidence") or result[key].get("evidence")):
+            previous = result[key]
+            evidence_paths = previous.get("evidencePaths", []) or [previous.get("evidence")]
+            evidence_paths += item.get("evidencePaths", []) or [item.get("evidence")]
+            result[key] = {**previous, **item, "evidencePaths": list(dict.fromkeys(path for path in evidence_paths if path))}
+        else:
+            result[key] = item
+    return list(result.values())
 
 
 def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) -> dict:

@@ -13,7 +13,9 @@ class FakeBitbucket:
         )
 
     async def file_text(self, repository, path, revision=None):
-        return "docker push registry:5000/api:1" if path == "ci/build.sh" else None
+        if path == "pom.xml":
+            return "<properties><image>registry:5000/api:1</image></properties><command>docker push ${image}</command>"
+        return None
 
     async def close(self):
         pass
@@ -30,10 +32,13 @@ class FakeTeamCity:
         return {
             "id": "Demo_01", "name": "API build", "projectId": "Demo", "webUrl": "http://teamcity/config",
             "settings": {"property": [{"name": "artifactRules", "value": "**/sbom.json => artifacts"}]},
-            "steps": {"step": [{"properties": {"property": [{"name": "script.content", "value": "./ci/build.sh"}]}}]},
+            "parameters": {"property": [{"name": "push.command", "value": "./ci/build.sh"}]},
+            "steps": {"step": [{"properties": {"property": [{"name": "script.content", "value": "%push.command%"}]}}]},
             "vcs-root-entries": {"vcs-root-entry": [{"vcs-root": {"properties": {"property": [
                 {"name": "url", "value": "git@bitbucket.org:workspace/api.git"},
             ]}}}]},
+            "snapshot-dependencies": {"snapshot-dependency": [{"source-buildType": {"id": "Compile"}}]},
+            "artifact-dependencies": {"artifact-dependency": [{"source-buildType": {"id": "Package"}}]},
         }
 
     async def builds(self, _):
@@ -60,6 +65,10 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
     assert ("build-type:Demo_01", "build:42", "ran_as") in relations
     assert ("build-type:Demo_01", "image:registry:5000/api:1", "pushes") in relations
     assert ("build-type:Demo_01", "artifact:build-type:Demo_01/sbom.json", "publishes") in relations
+    assert ("build-type:Demo_01", "build-type:Compile", "snapshot_depends_on") in relations
+    assert ("build-type:Demo_01", "build-type:Package", "uses_artifacts_from") in relations
+    push_edge = next(edge for edge in edges if edge["relation"] == "pushes")
+    assert "workspace/api/pom.xml" in push_edge["evidence"]
 
 
 def test_demo_dataset_has_full_ten_repo_five_build_fixture():

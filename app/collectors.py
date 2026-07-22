@@ -145,7 +145,7 @@ class TeamCityCollector(ApiClient):
         return result
 
     async def build_type(self, build_type_id: str):
-        fields = "id,name,projectId,webUrl,settings(property(name,value)),steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies,artifact-dependencies"
+        fields = "id,name,projectId,webUrl,parameters(property(name,value)),settings(property(name,value)),steps(step(id,name,type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(vcs-root(id,name,properties(property(name,value))))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),artifact-dependencies(artifact-dependency(source-buildType(id),properties(property(name,value))))"
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):

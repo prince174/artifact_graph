@@ -38,8 +38,16 @@ def files_for(slug, stack, push_command, sbom):
     }
     if sbom:
         common["ci/sbom.sh"] = "#!/bin/sh\nset -eu\nmkdir -p build\nprintf '{\"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.5\"}' > build/sbom.json\n"
+    maven_profile = ""
+    if stack == "maven" and push_command:
+        engine, _, image = push_command.split()
+        maven_profile = f"""<properties><docker.image>{image}</docker.image></properties>
+  <profiles><profile><id>publish-image</id><build><plugins><plugin>
+    <groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId>
+    <configuration><executable>{engine}</executable><arguments><argument>push</argument><argument>${{docker.image}}</argument></arguments></configuration>
+  </plugin></plugins></build></profile></profiles>"""
     additions = {
-        "maven": {"pom.xml": "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>app</artifactId><version>1</version></project>\n"},
+        "maven": {"pom.xml": f"<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>app</artifactId><version>1</version>{maven_profile}</project>\n"},
         "gradle": {"settings.gradle": f"rootProject.name='{slug}'\n", "build.gradle": "plugins { id 'java' }\n"},
         "npm": {"package.json": json.dumps({"name": slug, "version": "1.0.0", "scripts": {"build": "echo built"}}, indent=2) + "\n"},
         "python": {"pyproject.toml": "[project]\nname='demo-app'\nversion='1.0.0'\n", "src/main.py": "print('fixture')\n"},
