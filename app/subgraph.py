@@ -22,7 +22,10 @@ def select_visible(nodes: list[dict], edges: list[dict], query: str = "", projec
     selected = {repo["id"] for repo in selected_repos}
     for repo in selected_repos:
         selected.update(e["source"] for e in incoming[repo["id"]] if e.get("relation") == "contains")
-        selected.update(e["target"] for e in outgoing[repo["id"]] if e.get("relation") == "built_by")
+        selected.update(e["target"] for e in outgoing[repo["id"]] if e.get("relation") == "maps_to")
+    tc_projects = [node_id for node_id in selected if by_id.get(node_id, {}).get("kind") == "tc_project"]
+    for project_id in tc_projects:
+        selected.update(e["target"] for e in outgoing[project_id] if e.get("relation") == "contains")
     configurations = [node_id for node_id in selected if by_id.get(node_id, {}).get("kind") == "build_configuration"]
     for config_id in configurations:
         selected.update(e["source"] for e in incoming[config_id] if e.get("relation") == "contains")

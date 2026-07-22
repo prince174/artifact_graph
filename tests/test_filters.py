@@ -9,7 +9,8 @@ def graph_fixture():
         {"id": "bb", "kind": "bb_project", "label": "Demo"},
         {"id": "r1", "kind": "repository", "label": "API"},
         {"id": "r2", "kind": "repository", "label": "Infra"},
-        {"id": "tc", "kind": "tc_project", "label": "Builds"},
+        {"id": "tc1", "kind": "tc_project", "label": "API Builds"},
+        {"id": "tc2", "kind": "tc_project", "label": "Infra Builds"},
         {"id": "c1", "kind": "build_configuration", "label": "API build"},
         {"id": "c2", "kind": "build_configuration", "label": "Infra build"},
         {"id": "i1", "kind": "container_image", "label": "api:1", "engine": "docker"},
@@ -19,8 +20,8 @@ def graph_fixture():
     ]
     edges = [
         {"source": "bb", "target": "r1", "relation": "contains"}, {"source": "bb", "target": "r2", "relation": "contains"},
-        {"source": "r1", "target": "c1", "relation": "built_by"}, {"source": "r2", "target": "c2", "relation": "built_by"},
-        {"source": "tc", "target": "c1", "relation": "contains"}, {"source": "tc", "target": "c2", "relation": "contains"},
+        {"source": "r1", "target": "tc1", "relation": "maps_to"}, {"source": "r2", "target": "tc2", "relation": "maps_to"},
+        {"source": "tc1", "target": "c1", "relation": "contains"}, {"source": "tc2", "target": "c2", "relation": "contains"},
         {"source": "c1", "target": "i1", "relation": "pushes"}, {"source": "c1", "target": "s1", "relation": "publishes"},
         {"source": "c1", "target": "b1", "relation": "ran_as"}, {"source": "c2", "target": "b2", "relation": "ran_as"},
     ]
@@ -31,13 +32,13 @@ def test_filters_configuration_by_image_engine_sbom_and_status():
     nodes, edges = graph_fixture()
     filtered, _ = filter_graph(nodes, edges, engine="docker", has_image=True, has_sbom=True, status="SUCCESS")
     ids = {node["id"] for node in filtered}
-    assert ids == {"bb", "r1", "tc", "c1", "i1", "s1", "b1"}
+    assert ids == {"bb", "r1", "tc1", "c1", "i1", "s1", "b1"}
 
 
 def test_filters_configuration_without_image_and_by_recent_build():
     nodes, edges = graph_fixture()
     no_image, _ = filter_graph(nodes, edges, has_image=False)
-    assert {node["id"] for node in no_image} == {"bb", "r2", "tc", "c2", "b2"}
+    assert {node["id"] for node in no_image} == {"bb", "r2", "tc2", "c2", "b2"}
     recent, _ = filter_graph(nodes, edges, since_days=7)
     assert "c1" in {node["id"] for node in recent}
     assert "c2" not in {node["id"] for node in recent}

@@ -15,8 +15,7 @@ def test_actual_outputs_are_propagated_only_through_product_chain():
     edges = [
         {"source": "bb", "target": "repo", "relation": "contains"},
         {"source": "bb", "target": "repo-other", "relation": "contains"},
-        {"source": "repo", "target": "cfg", "relation": "built_by"},
-        {"source": "repo-other", "target": "cfg-other", "relation": "built_by"},
+        {"source": "repo", "target": "tc", "relation": "maps_to"},
         {"source": "tc", "target": "cfg", "relation": "contains"},
         {"source": "tc", "target": "cfg-other", "relation": "contains"},
         {"source": "cfg", "target": "run", "relation": "ran_as"},

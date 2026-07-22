@@ -15,7 +15,8 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
     if bb_project:
         projects = {node["id"] for node in nodes if node["kind"] == "bb_project" and node["label"] == bb_project}
         repos = {edge["target"] for project in projects for edge in outgoing.get(project, []) if edge["relation"] == "contains"}
-        configurations &= {edge["target"] for repo in repos for edge in outgoing.get(repo, []) if edge["relation"] == "built_by"}
+        tc_projects = {edge["target"] for repo in repos for edge in outgoing.get(repo, []) if edge["relation"] == "maps_to"}
+        configurations &= {edge["target"] for project in tc_projects for edge in outgoing.get(project, []) if edge["relation"] == "contains"}
     if tc_project:
         projects = {node["id"] for node in nodes if node["kind"] == "tc_project" and node["label"] == tc_project}
         configurations &= {edge["target"] for project in projects for edge in outgoing.get(project, []) if edge["relation"] == "contains"}
@@ -46,12 +47,15 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
     selected = set(configurations)
     for config in configurations:
         for edge in incoming.get(config, []):
-            if edge["relation"] in {"built_by", "contains"}:
+            if edge["relation"] == "contains":
                 selected.add(edge["source"])
         for edge in outgoing.get(config, []):
             target = by_id.get(edge["target"])
             if target and (target["kind"] != "build" or visible_build(target)):
                 selected.add(edge["target"])
+    for node_id in list(selected):
+        if by_id.get(node_id, {}).get("kind") == "tc_project":
+            selected.update(edge["source"] for edge in incoming.get(node_id, []) if edge["relation"] == "maps_to")
     for node_id in list(selected):
         if by_id.get(node_id, {}).get("kind") == "repository":
             selected.update(edge["source"] for edge in incoming.get(node_id, []) if edge["relation"] == "contains")

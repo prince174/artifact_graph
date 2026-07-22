@@ -24,16 +24,13 @@ def dataset():
         nodes += [{"id": repo_id, "kind": "repository", "label": slug, "stack": stack, "url": f"http://localhost:7990/projects/DEMO/repos/{slug}"},
                   {"id": tc_project_id, "kind": "tc_project", "label": slug}]
         edges.append({"source": "bb-project:DEMO", "target": repo_id, "relation": "contains"})
-        previous_id = ""
+        edges.append({"source": repo_id, "target": tc_project_id, "relation": "maps_to", "confidence": "exact_vcs_url"})
         for stage in PIPELINE_STAGES:
             build_id = f"build-type:{stage_build_id(i, stage)}"
             image_id = None
             sbom_id = None
             nodes.append({"id": build_id, "kind": "build_configuration", "label": stage.name, "url": f"http://localhost:8111/buildConfiguration/{stage_build_id(i, stage)}"})
-            edges += [{"source": repo_id, "target": build_id, "relation": "built_by", "confidence": "exact_vcs_url"},
-                      {"source": tc_project_id, "target": build_id, "relation": "contains"}]
-            if previous_id:
-                edges.append({"source": build_id, "target": previous_id, "relation": "snapshot_depends_on"})
+            edges.append({"source": tc_project_id, "target": build_id, "relation": "contains"})
             if stage.key == "Build" and command:
                 engine, image = command.split()[0], command.split()[2]
                 image_id = f"image:{image}"
@@ -52,5 +49,4 @@ def dataset():
                     edges.append({"source": run_id, "target": image_id, "relation": "pushed_image"})
                 if sbom_id and successful:
                     edges.append({"source": run_id, "target": sbom_id, "relation": "produced_sbom"})
-            previous_id = build_id
     return nodes, edges

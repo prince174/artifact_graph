@@ -76,16 +76,17 @@ async def collect_live():
         async for repo in bb.repositories():
             pid = f"bb-project:{repo.namespace}/{repo.project_key}"
             rid = f"repo:{repo.namespace}/{repo.slug}"
-            nodes += [
-                {"id": pid, "kind": "bb_project", "label": repo.project_name, "provider": repo.provider, "active": repo.active},
-                {"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider, "active": repo.active},
-            ]
-            edges.append({"source": pid, "target": rid, "relation": "contains"})
+            nodes.append({"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider, "active": repo.active})
+            if repo.project_key != "UNASSIGNED":
+                nodes.append({"id": pid, "kind": "bb_project", "label": repo.project_name, "provider": repo.provider, "active": repo.active})
+                edges.append({"source": pid, "target": rid, "relation": "contains"})
             repo_records[rid] = repo
             for clone_url in repo.clone_urls:
                 repo_by_url[normalize_url(clone_url)] = rid
         for summary in await tc.build_types():
             detail = await tc.build_type(summary["id"])
+            if detail.get("projectId") in {"_Root", "Root"}:
+                continue
             bid, pid = f"build-type:{detail['id']}", f"tc-project:{detail['projectId']}"
             nodes += [{"id": pid, "kind": "tc_project", "label": detail["projectId"], "active": True}, {"id": bid, "kind": "build_configuration", "label": detail["name"], "url": detail.get("webUrl"), "active": not detail.get("paused", False)}]
             edges.append({"source": pid, "target": bid, "relation": "contains"})
@@ -95,7 +96,7 @@ async def collect_live():
                 props = {p["name"]: p.get("value", "") for p in entry.get("vcs-root", {}).get("properties", {}).get("property", [])}
                 url = props.get("url", "")
                 if repo_id := repo_by_url.get(normalize_url(url)):
-                    edges.append({"source": repo_id, "target": bid, "relation": "built_by", "confidence": "exact_vcs_url"})
+                    edges.append({"source": repo_id, "target": pid, "relation": "maps_to", "confidence": "exact_vcs_url"})
                     linked_repositories.append(repo_records[repo_id])
             scripts = []
             build_files = []
@@ -136,12 +137,6 @@ async def collect_live():
                     edges.append({"source": run_id, "target": f"image:{image['image']}", "relation": "pushed_image"})
                 if aid and node["sbomArtifacts"]:
                     edges.append({"source": run_id, "target": aid, "relation": "produced_sbom"})
-            for dependency in detail.get("snapshot-dependencies", {}).get("snapshot-dependency", []):
-                if source_id := dependency.get("source-buildType", {}).get("id"):
-                    edges.append({"source": bid, "target": f"build-type:{source_id}", "relation": "snapshot_depends_on"})
-            for dependency in detail.get("artifact-dependencies", {}).get("artifact-dependency", []):
-                if source_id := dependency.get("source-buildType", {}).get("id"):
-                    edges.append({"source": bid, "target": f"build-type:{source_id}", "relation": "uses_artifacts_from"})
         nodes, edges = deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
         annotate_visual_state(nodes, edges)
         return nodes, edges
@@ -209,7 +204,7 @@ def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
     stages = [
         ("build_configuration", "ran_as", "build"),
         ("tc_project", "contains", "build_configuration"),
-        ("repository", "built_by", "build_configuration"),
+        ("repository", "maps_to", "tc_project"),
         ("bb_project", "contains", "repository"),
     ]
     for parent_kind, relation, child_kind in stages:

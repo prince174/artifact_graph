@@ -7,9 +7,9 @@ def fixture(projects=11, repos=11):
         pid = f"p-{p:02d}"
         nodes.append({"id": pid, "kind": "bb_project", "label": f"Project {p:02d}"})
         for r in range(repos):
-            rid, cid = f"r-{p:02d}-{r:02d}", f"c-{p:02d}-{r:02d}"
-            nodes += [{"id": rid, "kind": "repository", "label": f"Repo {p:02d}-{r:02d}"}, {"id": cid, "kind": "build_configuration", "label": cid}]
-            edges += [{"source": pid, "target": rid, "relation": "contains"}, {"source": rid, "target": cid, "relation": "built_by"}]
+            rid, tid, cid = f"r-{p:02d}-{r:02d}", f"t-{p:02d}-{r:02d}", f"c-{p:02d}-{r:02d}"
+            nodes += [{"id": rid, "kind": "repository", "label": f"Repo {p:02d}-{r:02d}"}, {"id": tid, "kind": "tc_project", "label": tid}, {"id": cid, "kind": "build_configuration", "label": cid}]
+            edges += [{"source": pid, "target": rid, "relation": "contains"}, {"source": rid, "target": tid, "relation": "maps_to"}, {"source": tid, "target": cid, "relation": "contains"}]
     return nodes, edges
 
 
@@ -26,6 +26,6 @@ def test_search_uses_full_repository_index_outside_default_page():
     nodes, edges = fixture()
     visible, visible_edges = select_visible(nodes, edges, "Repo 10-10")
     ids = {node["id"] for node in visible}
-    assert {"p-10", "r-10-10", "c-10-10"} <= ids
+    assert {"p-10", "r-10-10", "t-10-10", "c-10-10"} <= ids
     assert len([n for n in visible if n["kind"] == "repository"]) == 1
-    assert len(visible_edges) == 2
+    assert len(visible_edges) == 3
