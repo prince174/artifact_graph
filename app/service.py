@@ -67,6 +67,9 @@ async def refresh():
             with SessionLocal.begin() as db:
                 row = db.get(Scan, scan.id)
                 row.status, row.message, row.finished_at = status, message, datetime.now(timezone.utc)
+                old_ids = [item[0] for item in db.query(Scan.id).order_by(Scan.id.desc()).offset(settings.scan_history_limit).all()]
+                if old_ids:
+                    db.query(Scan).filter(Scan.id.in_(old_ids)).delete(synchronize_session=False)
 
 
 async def collect_live():

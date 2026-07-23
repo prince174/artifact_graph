@@ -96,3 +96,24 @@ REGISTRY_TOKEN=read-only-token
 
 Use a read-only account. `REGISTRY_URL` is the address available inside the graph
 container; `REGISTRY_PUBLIC_URL` is used for links shown in the browser.
+
+## Operations
+
+- `GET /health/live` checks that the process is alive.
+- `GET /health/ready` checks PostgreSQL and requires at least one successful scan.
+- `GET /metrics` exposes Prometheus scan, graph-size, duration, and age metrics.
+- `GET /api/scans?limit=20` returns recent scan history. `SCAN_HISTORY_LIMIT` controls retention.
+
+The runtime `BITBUCKET_TOKEN` and `TEAMCITY_TOKEN` must belong to dedicated read-only
+accounts. Keep `BB_BOOTSTRAP_TOKEN` and `TC_ADMIN_TOKEN` outside the graph container;
+they are only used by bootstrap scripts.
+
+Back up PostgreSQL and restore it without exposing credentials:
+
+```bash
+docker compose exec -T postgres pg_dump -U graph graph > artifact-graph.sql
+docker compose exec -T postgres psql -U graph graph < artifact-graph.sql
+```
+
+Back up the named volumes before a destructive recreation of TeamCity or the local
+registry. A normal `docker compose up -d --build` preserves all named volumes.

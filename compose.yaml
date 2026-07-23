@@ -7,6 +7,7 @@ services:
       APP_MODE: ${APP_MODE:-demo}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://graph:graph@postgres:5432/graph}
       REFRESH_MINUTES: ${REFRESH_MINUTES:-60}
+      SCAN_HISTORY_LIMIT: ${SCAN_HISTORY_LIMIT:-100}
       API_RETRY_ATTEMPTS: ${API_RETRY_ATTEMPTS:-4}
       API_RETRY_BACKOFF_SECONDS: ${API_RETRY_BACKOFF_SECONDS:-0.5}
       BITBUCKET_PROVIDER: ${BITBUCKET_PROVIDER:-cloud}
@@ -30,6 +31,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   postgres:
     image: postgres:16-alpine
