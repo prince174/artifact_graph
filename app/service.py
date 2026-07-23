@@ -12,6 +12,7 @@ from .models import Edge, Node, Scan, SessionLocal
 from .source_analysis import build_source_paths, expand_scripts
 from .registry import RegistryCollector
 from .sbom import summarize_sbom
+from .visual_states import build_visual_state
 
 
 refresh_lock = asyncio.Lock()
@@ -232,6 +233,9 @@ def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
         if node["kind"] in {"bb_project", "repository", "tc_project", "build_configuration"}:
             node.setdefault("active", True)
             node["hasTargetOutput"] = node["id"] in relevant
+            node["visualReason"] = "inactive" if not node["active"] else "target_output_branch" if node["hasTargetOutput"] else "active"
+        elif node["kind"] == "build":
+            node["visualReason"] = build_visual_state(node)
 
     # Container activity is derived from the activity of direct children.
     for node in nodes:

@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
 
-def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engine="", has_image=None, has_sbom=None, since_days=0):
-    if not any((bb_project, tc_project, status, engine, has_image is not None, has_sbom is not None, since_days)):
+def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engine="", has_image=None, has_sbom=None, target_only=False, since_days=0):
+    if not any((bb_project, tc_project, status, engine, has_image is not None, has_sbom is not None, target_only, since_days)):
         return nodes, edges
     by_id = {node["id"]: node for node in nodes}
     outgoing = {}
@@ -11,6 +11,8 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
         outgoing.setdefault(edge["source"], []).append(edge)
         incoming.setdefault(edge["target"], []).append(edge)
     configurations = {node["id"] for node in nodes if node["kind"] == "build_configuration"}
+    if target_only:
+        configurations &= {node["id"] for node in nodes if node["kind"] == "build_configuration" and node.get("hasTargetOutput")}
 
     if bb_project:
         projects = {node["id"] for node in nodes if node["kind"] == "bb_project" and node["label"] == bb_project}
@@ -35,7 +37,7 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
     cutoff = datetime.now(timezone.utc) - timedelta(days=since_days) if since_days else None
 
     def visible_build(node):
-        if status and node.get("status") != status:
+        if status and node.get("status") != status and node.get("state", "").upper() != status.upper():
             return False
         if cutoff and (finished := parse_teamcity_date(node.get("finishDate"))) and finished < cutoff:
             return False

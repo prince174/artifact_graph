@@ -47,3 +47,11 @@ def test_filters_configuration_without_image_and_by_recent_build():
 def test_parses_teamcity_date_and_tolerates_unknown_format():
     assert parse_teamcity_date("20260722T120000+0500").year == 2026
     assert parse_teamcity_date("not-a-date") is None
+
+
+def test_filters_only_target_configs_and_matches_running_state():
+    nodes, edges = graph_fixture()
+    next(node for node in nodes if node["id"] == "c1")["hasTargetOutput"] = True
+    next(node for node in nodes if node["id"] == "b1")["state"] = "running"
+    filtered, _ = filter_graph(nodes, edges, target_only=True, status="RUNNING")
+    assert {node["id"] for node in filtered} == {"bb", "r1", "tc1", "c1", "i1", "s1", "b1"}

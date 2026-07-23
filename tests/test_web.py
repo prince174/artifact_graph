@@ -10,7 +10,7 @@ def test_build_detail_ui_has_status_and_clickable_artifact_support():
 
 
 def test_ui_has_server_filters_and_collapsible_branches():
-    for control in ("bbProject", "tcProject", "statusFilter", "engineFilter", "imageFilter", "sbomFilter", "sinceDays"):
+    for control in ("bbProject", "tcProject", "statusFilter", "engineFilter", "imageFilter", "sbomFilter", "targetOnly", "outputsMode", "sinceDays"):
         assert f'id="{control}"' in PAGE
     assert "function toggleCollapse" in PAGE
     assert "function descendants" in PAGE
@@ -41,3 +41,11 @@ def test_node_shapes_colors_and_neutral_edges_follow_visual_language():
     assert "'line-color':'#484f58'" in PAGE
     assert "'target-arrow-color':'#484f58'" in PAGE
     assert "'line-color':'#a371f7'" not in PAGE
+
+
+def test_ui_preserves_viewport_explains_color_and_polls_for_new_scan():
+    assert "zoom:cy.zoom(),pan:cy.pan()" in PAGE
+    assert "cy.zoom(viewport.zoom);cy.pan(viewport.pan)" in PAGE
+    assert "Причина цвета" in PAGE
+    assert "setInterval(status,60000)" in PAGE
+    assert "lastScanFinished" in PAGE
