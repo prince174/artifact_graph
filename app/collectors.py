@@ -201,10 +201,19 @@ class TeamCityCollector(ApiClient):
                         "path": full_name,
                         "size": item.get("size"),
                         "url": f"{settings.teamcity_public_url.rstrip('/')}{content}",
+                        "contentHref": content,
                     })
 
         await visit(f"/app/rest/builds/id:{build_id}/artifacts/children")
         return files
+
+    async def artifact_content(self, href: str, max_bytes: int = 2_000_000) -> tuple[str | None, bool]:
+        response = await self.client.get(href)
+        if response.status_code == 404:
+            return None, False
+        response.raise_for_status()
+        content = response.content
+        return content[:max_bytes].decode("utf-8", errors="replace"), len(content) > max_bytes
 
 
 def repository_provider() -> RepositoryProvider:

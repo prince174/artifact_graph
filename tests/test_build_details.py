@@ -23,7 +23,7 @@ async def test_teamcity_artifacts_are_collected_recursively():
     try:
         assert await collector.artifacts("42") == [{
             "name": "sbom.json", "path": "artifacts/build/sbom.json", "size": 45,
-            "url": "http://browser-teamcity/content/sbom.json",
+            "url": "http://browser-teamcity/content/sbom.json", "contentHref": "/content/sbom.json",
         }]
     finally:
         await collector.close()

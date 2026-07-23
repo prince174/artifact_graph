@@ -11,6 +11,7 @@ from .demo import dataset
 from .models import Edge, Node, Scan, SessionLocal
 from .source_analysis import build_source_paths, expand_scripts
 from .registry import RegistryCollector
+from .sbom import summarize_sbom
 
 
 refresh_lock = asyncio.Lock()
@@ -129,6 +130,11 @@ async def collect_live():
                     })
             for build in await tc.builds(detail["id"]):
                 artifacts = await tc.artifacts(build["id"]) if build.get("state", "finished") == "finished" else []
+                for artifact in artifacts:
+                    if artifact.get("name", "").lower() == "sbom.json" and artifact.get("contentHref"):
+                        content, truncated = await tc.artifact_content(artifact["contentHref"])
+                        artifact.update(summarize_sbom(content, truncated=truncated))
+                        artifact.pop("contentHref", None)
                 build_log = await tc.build_log(build["id"]) if build.get("state", "finished") == "finished" else ""
                 node = build_node(build, pushed_images, artifacts, build_log)
                 run_id = node["id"]

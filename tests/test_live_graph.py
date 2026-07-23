@@ -45,7 +45,10 @@ class FakeTeamCity:
         return [{"id": 42, "number": "5", "status": "SUCCESS", "webUrl": "http://teamcity/build/42"}]
 
     async def artifacts(self, _):
-        return [{"name": "sbom.json", "path": "artifacts/build/sbom.json", "url": "http://teamcity/sbom"}]
+        return [{"name": "sbom.json", "path": "artifacts/build/sbom.json", "url": "http://teamcity/sbom", "contentHref": "/sbom"}]
+
+    async def artifact_content(self, _):
+        return '{"bomFormat":"CycloneDX","specVersion":"1.6","components":[{}]}', False
 
     async def build_log(self, _):
         return "docker push registry:5000/api:1\ndigest: sha256:" + "e" * 64
@@ -64,6 +67,7 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
 
     assert by_id["build:42"]["pushedImages"][0]["image"] == "registry:5000/api:1"
     assert by_id["build:42"]["sbomArtifacts"][0]["path"] == "artifacts/build/sbom.json"
+    assert by_id["build:42"]["sbomArtifacts"][0]["componentCount"] == 1
     assert ("repo:workspace/api", "tc-project:Demo", "maps_to") in relations
     assert not any(node["id"] in {"tc-project:_Root", "build-type:Root_Config"} for node in nodes)
     assert ("build-type:Demo_01", "build:42", "ran_as") in relations
