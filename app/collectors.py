@@ -170,6 +170,21 @@ class TeamCityCollector(ApiClient):
         data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:3", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
         return data.get("build", [])
 
+    async def build_log(self, build_id: str, max_bytes: int = 5_000_000) -> str:
+        chunks, size = [], 0
+        async with self.client.stream("GET", "/downloadBuildLog.html", params={"buildId": build_id}, headers={"Accept": "text/plain"}) as response:
+            if response.status_code in {404, 409}:
+                return ""
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                if size + len(chunk) > max_bytes:
+                    chunk = chunk[:max_bytes - size]
+                chunks.append(chunk)
+                size += len(chunk)
+                if size >= max_bytes:
+                    break
+        return b"".join(chunks).decode("utf-8", errors="replace")
+
     async def artifacts(self, build_id: str):
         files = []
 

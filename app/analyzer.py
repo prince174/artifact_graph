@@ -5,12 +5,55 @@ PUSH_RE = re.compile(r"\b(docker|podman)\s+push\s+([^\s;&|<\"']+)", re.I)
 SCRIPT_RE = re.compile(r"(?<![\w.-])(?:\./)?([\w.-]+(?:/[\w.-]+)*\.(?:sh|ps1|py))(?![\w.-])", re.I)
 MAVEN_PROPERTY_RE = re.compile(r"<([A-Za-z_][\w.-]*)>\s*([^<]+?)\s*</\1>")
 VARIABLE_RE = re.compile(r"\$\{([\w.-]+)}")
+DIGEST_RE = re.compile(r"\bdigest:\s*(sha256:[0-9a-f]{64})\b", re.I)
+ERROR_RE = re.compile(r"\b(error|failed|denied|unauthorized|manifest unknown)\b", re.I)
+PUSH_REPOSITORY_RE = re.compile(r"The push refers to repository \[([^\]]+)]", re.I)
 
 
 def find_pushes(script: str) -> list[dict]:
     text = resolve_maven_properties(unescape(script or ""))
     text = re.sub(r"<[^>]+>", " ", text)
     return [{"engine": m.group(1).lower(), "image": m.group(2)} for m in PUSH_RE.finditer(text)]
+
+
+def find_executed_pushes(build_log: str, configured: list[dict] | None = None) -> list[dict]:
+    """Return only pushes with a successful terminal marker in a TeamCity build log."""
+    results, attempt = [], None
+    configured = configured or []
+    for raw_line in (build_log or "").splitlines():
+        line = re.sub(r"\x1b\[[0-9;]*m", "", unescape(raw_line))
+        if match := PUSH_RE.search(line):
+            prefix = line[:match.start()].rstrip().lower()
+            attempt = None if re.search(r"(?:^|\s)(?:echo|printf|write-output)\s*$", prefix) else {
+                "engine": match.group(1).lower(), "image": match.group(2), "evidence": "teamcity_build_log"
+            }
+            continue
+        if repository := PUSH_REPOSITORY_RE.search(line):
+            repo = repository.group(1)
+            candidate = next((item for item in configured if _image_repository(item["image"]) == repo), None)
+            attempt = {"engine": "docker", "image": candidate["image"] if candidate else repo, "evidence": "teamcity_build_log"}
+            continue
+        if not attempt:
+            continue
+        if ERROR_RE.search(line):
+            attempt = None
+            continue
+        digest = DIGEST_RE.search(line)
+        podman_done = attempt["engine"] == "podman" and re.search(r"Writing manifest|Storing signatures", line, re.I)
+        if digest or podman_done:
+            if digest:
+                attempt["digest"] = digest.group(1).lower()
+            results.append(attempt)
+            attempt = None
+    return list({(item["engine"], item["image"], item.get("digest")): item for item in results}.values())
+
+
+def _image_repository(image: str) -> str:
+    value = image.split("@", 1)[0]
+    head, slash, tail = value.rpartition("/")
+    if ":" in tail:
+        tail = tail.rsplit(":", 1)[0]
+    return f"{head}{slash}{tail}"
 
 
 def publishes_sbom(artifact_rules: str) -> bool:

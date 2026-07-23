@@ -4,7 +4,7 @@ import asyncio
 import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
-from .analyzer import find_pushes, publishes_sbom, resolve_teamcity_parameters
+from .analyzer import find_executed_pushes, find_pushes, publishes_sbom, resolve_teamcity_parameters
 from .collectors import TeamCityCollector, repository_provider, teamcity_properties
 from .config import settings
 from .demo import dataset
@@ -129,7 +129,8 @@ async def collect_live():
                     })
             for build in await tc.builds(detail["id"]):
                 artifacts = await tc.artifacts(build["id"]) if build.get("state", "finished") == "finished" else []
-                node = build_node(build, pushed_images, artifacts)
+                build_log = await tc.build_log(build["id"]) if build.get("state", "finished") == "finished" else ""
+                node = build_node(build, pushed_images, artifacts, build_log)
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
@@ -172,9 +173,13 @@ def deduplicate(items, keys=("id",)):
     return list(result.values())
 
 
-def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict]) -> dict:
+def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict], build_log: str = "") -> dict:
     successful = build.get("state", "finished") == "finished" and build.get("status") == "SUCCESS"
-    actual_images = pushed_images if successful else []
+    configured = {(item.get("engine"), item["image"]): item for item in pushed_images}
+    actual_images = [
+        {**configured.get((item["engine"], item["image"]), {}), **item}
+        for item in find_executed_pushes(build_log, pushed_images)
+    ] if successful else []
     return {
         "id": f"build:{build['id']}",
         "kind": "build",

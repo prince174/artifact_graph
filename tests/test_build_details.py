@@ -34,12 +34,13 @@ def test_successful_build_has_actual_pushes_and_only_sbom_artifacts():
     build = {"id": 42, "number": "5", "status": "SUCCESS", "webUrl": "http://teamcity/build/42"}
     images = [{"image": "registry/service:1", "engine": "docker"}]
     artifacts = [{"name": "log.txt"}, {"name": "sbom.json", "url": "http://teamcity/sbom"}]
-    node = build_node(build, images, artifacts)
+    log = "docker push registry/service:1\ndigest: sha256:" + "d" * 64
+    node = build_node(build, images, artifacts, log)
     assert node["id"] == "build:42"
-    assert node["pushedImages"] == images
+    assert node["pushedImages"] == [{**images[0], "evidence": "teamcity_build_log", "digest": "sha256:" + "d" * 64}]
     assert node["hasImagePush"] is True
     assert node["hasSbom"] is True
-    assert node["sbomArtifacts"] == [{**artifacts[1], "relatedImages": ["registry/service:1"]}]
+    assert node["sbomArtifacts"] == [{**artifacts[1], "relatedImages": ["sha256:" + "d" * 64]}]
 
 
 def test_failed_build_does_not_claim_image_was_pushed():

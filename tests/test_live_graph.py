@@ -47,6 +47,9 @@ class FakeTeamCity:
     async def artifacts(self, _):
         return [{"name": "sbom.json", "path": "artifacts/build/sbom.json", "url": "http://teamcity/sbom"}]
 
+    async def build_log(self, _):
+        return "docker push registry:5000/api:1\ndigest: sha256:" + "e" * 64
+
     async def close(self):
         pass
 
