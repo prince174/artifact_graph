@@ -29,7 +29,8 @@ def dataset():
             build_id = f"build-type:{stage_build_id(i, stage)}"
             image_id = None
             sbom_id = None
-            nodes.append({"id": build_id, "kind": "build_configuration", "label": stage.name, "url": f"http://localhost:8111/buildConfiguration/{stage_build_id(i, stage)}"})
+            paused = i == 10 and stage.key == "Deploy"
+            nodes.append({"id": build_id, "kind": "build_configuration", "label": stage.name, "url": f"http://localhost:8111/buildConfiguration/{stage_build_id(i, stage)}", "active": not paused})
             edges.append({"source": tc_project_id, "target": build_id, "relation": "contains"})
             if stage.key == "Build" and command:
                 engine, image = command.split()[0], command.split()[2]
@@ -43,7 +44,8 @@ def dataset():
             for n in range(3):
                 run_id = f"build:{build_id}/{100-n}"
                 successful = n != 1
-                nodes.append({"id": run_id, "kind": "build", "label": f"#{100-n}", "status": "SUCCESS" if successful else "FAILURE", "date": (now-timedelta(days=n)).isoformat(), "hasImagePush": bool(image_id and successful), "hasSbom": bool(sbom_id and successful)})
+                state = "running" if i == 10 and stage.key == "Test" and n == 0 else "queued" if i == 10 and stage.key == "Build" and n == 0 else "finished"
+                nodes.append({"id": run_id, "kind": "build", "label": f"#{100-n}", "state": state, "status": "SUCCESS" if successful else "FAILURE", "date": (now-timedelta(days=n)).isoformat(), "hasImagePush": bool(image_id and successful and state == "finished"), "hasSbom": bool(sbom_id and successful and state == "finished")})
                 edges.append({"source": build_id, "target": run_id, "relation": "ran_as"})
                 if image_id and successful:
                     edges.append({"source": run_id, "target": image_id, "relation": "pushed_image"})
