@@ -83,3 +83,9 @@ def test_snapshot_diff_controls_and_highlights_are_present():
     assert "/api/snapshots/" in PAGE
     assert ".diff-added" in PAGE
     assert "Изменения push / SBOM" in PAGE
+
+
+def test_stale_data_is_visually_marked_and_explained():
+    assert "node[?stale]" in PAGE
+    assert "Устаревшие данные" in PAGE
+    assert "status.degraded" in PAGE

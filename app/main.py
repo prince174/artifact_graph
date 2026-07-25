@@ -79,10 +79,10 @@ def health_ready():
     try:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
-            scan = db.query(Scan).filter(Scan.status == "success").order_by(Scan.id.desc()).first()
+            scan = db.query(Scan).filter(Scan.status.in_(("success", "degraded"))).order_by(Scan.id.desc()).first()
         if not scan:
             raise HTTPException(503, "No successful scan yet")
-        return {"status": "ready", "lastSuccessfulScan": scan.finished_at}
+        return {"status": "ready", "lastUsableScan": scan.finished_at, "degraded": scan.status == "degraded"}
     except HTTPException:
         raise
     except Exception:

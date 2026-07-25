@@ -56,11 +56,28 @@ def _save(nodes, edges):
                 db.delete(row)
 
 
+def _load_graph() -> tuple[list[dict], list[dict]]:
+    with SessionLocal() as db:
+        nodes = [{"id": row.id, "kind": row.kind, "label": row.label, **json.loads(row.data)} for row in db.query(Node).all()]
+        edges = [{"source": row.source, "target": row.target, "relation": row.relation, **json.loads(row.data)} for row in db.query(Edge).all()]
+    return nodes, edges
+
+
+def _mark_stale(nodes: list[dict], reason: str, stale_since=None) -> list[dict]:
+    since = stale_since or datetime.now(timezone.utc).isoformat()
+    for node in nodes:
+        node["stale"] = True
+        node["staleReason"] = reason
+        node["staleSince"] = since
+    return nodes
+
+
 async def refresh():
     async with refresh_lock:
         with SessionLocal.begin() as db:
             scan = Scan()
             db.add(scan)
+        previous_nodes, previous_edges = _load_graph()
         try:
             if settings.app_mode == "demo":
                 nodes, edges = dataset()
@@ -69,10 +86,18 @@ async def refresh():
             annotate_visual_state(nodes, edges)
             _save(nodes, edges)
             _save_snapshot(scan.id, nodes, edges)
-            status, message = "success", f"{len(nodes)} nodes, {len(edges)} edges"
+            stale_count = sum(bool(node.get("stale")) for node in nodes)
+            status = "degraded" if stale_count else "success"
+            message = f"{len(nodes)} nodes, {len(edges)} edges" + (f"; {stale_count} stale" if stale_count else "")
         except Exception as exc:
-            status, message = "failed", str(exc)
-            raise
+            if previous_nodes:
+                nodes = _mark_stale(previous_nodes, f"{type(exc).__name__}: {exc}")
+                _save(nodes, previous_edges)
+                _save_snapshot(scan.id, nodes, previous_edges)
+                status, message = "degraded", f"upstream unavailable; serving {len(nodes)} stale nodes: {type(exc).__name__}"
+            else:
+                status, message = "failed", str(exc)
+                raise
         finally:
             with SessionLocal.begin() as db:
                 row = db.get(Scan, scan.id)
@@ -95,6 +120,8 @@ async def collect_live():
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
     registry = RegistryCollector() if settings.registry_enabled else None
     manifest_cache = {}
+    previous_nodes, _ = _load_graph()
+    previous_by_id = {node["id"]: node for node in previous_nodes}
     nodes, edges, repo_by_url, repo_records = [], [], {}, {}
     try:
         async for repo in bb.repositories():
@@ -192,10 +219,22 @@ async def collect_live():
                     except httpx.HTTPError as exc:
                         artifacts, build_log = [], ""
                         build["collectionError"] = type(exc).__name__
+                        old = previous_by_id.get(f"build:{build['id']}")
+                        if old:
+                            artifacts = old.get("sbomArtifacts", [])
+                            build_log = ""
+                            build["stale"] = True
+                            build["staleReason"] = f"{type(exc).__name__}: build inputs unavailable"
+                            build["staleSince"] = datetime.now(timezone.utc).isoformat()
                 for artifact in artifacts:
                     if artifact.get("name", "").lower() == "sbom.json":
                         artifact["artifactRule"] = sbom_rule
                 node = build_node(build, pushed_images, artifacts, build_log)
+                if build.get("stale") and (old := previous_by_id.get(node["id"])):
+                    node["pushedImages"] = old.get("pushedImages", [])
+                    node["hasImagePush"] = old.get("hasImagePush", False)
+                    node["sbomArtifacts"] = old.get("sbomArtifacts", [])
+                    node["hasSbom"] = old.get("hasSbom", False)
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})

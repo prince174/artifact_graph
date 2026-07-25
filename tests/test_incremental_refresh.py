@@ -31,7 +31,7 @@ def test_incremental_save_updates_existing_and_removes_stale(sqlite_session):
 
 
 @pytest.mark.asyncio
-async def test_failed_refresh_preserves_previous_successful_graph(sqlite_session, monkeypatch):
+async def test_failed_refresh_serves_previous_graph_as_degraded(sqlite_session, monkeypatch):
     service._save([{"id": "stable", "kind": "repository", "label": "Stable"}], [])
 
     async def fail():
@@ -39,9 +39,22 @@ async def test_failed_refresh_preserves_previous_successful_graph(sqlite_session
 
     monkeypatch.setattr(service.settings, "app_mode", "live")
     monkeypatch.setattr(service, "collect_live", fail)
-    with pytest.raises(RuntimeError, match="temporary upstream failure"):
-        await service.refresh()
+    await service.refresh()
     with sqlite_session() as db:
         assert db.get(Node, "stable").label == "Stable"
+        assert json.loads(db.get(Node, "stable").data)["stale"] is True
         scan = db.query(Scan).one()
-        assert scan.status == "failed"
+        assert scan.status == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_failed_first_refresh_still_fails(sqlite_session, monkeypatch):
+    async def fail():
+        raise RuntimeError("no upstream and no cache")
+
+    monkeypatch.setattr(service.settings, "app_mode", "live")
+    monkeypatch.setattr(service, "collect_live", fail)
+    with pytest.raises(RuntimeError):
+        await service.refresh()
+    with sqlite_session() as db:
+        assert db.query(Scan).one().status == "failed"
