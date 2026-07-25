@@ -19,6 +19,7 @@ class Repository:
     clone_urls: tuple[str, ...]
     default_branch: str = "main"
     active: bool = True
+    revision: str = ""
 
 
 class RepositoryProvider(Protocol):
@@ -79,8 +80,9 @@ class BitbucketDataCenterCollector(ApiClient):
                     slug=repo["slug"], name=repo["name"],
                     web_url=_first_href(links.get("self")),
                     clone_urls=tuple(x["href"] for x in links.get("clone", [])),
-                    default_branch=(repo.get("defaultBranch") or "main").removeprefix("refs/heads/"),
+                    default_branch=((repo.get("defaultBranch") or {}).get("displayId") if isinstance(repo.get("defaultBranch"), dict) else repo.get("defaultBranch") or "main").removeprefix("refs/heads/"),
                     active=not repo.get("archived", False),
+                    revision=(repo.get("defaultBranch") or {}).get("latestCommit", "") if isinstance(repo.get("defaultBranch"), dict) else "",
                 )
             if page.get("isLastPage", True):
                 break
@@ -111,7 +113,7 @@ class BitbucketCloudCollector(ApiClient):
 
     async def repositories(self):
         next_url = f"/repositories/{self.workspace}"
-        params = {"pagelen": 100, "fields": "+values.project,+values.mainbranch"}
+        params = {"pagelen": 100, "fields": "+values.project,+values.mainbranch,+values.mainbranch.target.hash"}
         while next_url:
             page = await self.get_json(next_url, **params)
             params = {}
@@ -128,6 +130,7 @@ class BitbucketCloudCollector(ApiClient):
                     clone_urls=tuple(x["href"] for x in links.get("clone", [])),
                     default_branch=(repo.get("mainbranch") or {}).get("name") or "main",
                     active=not repo.get("is_archived", False) and repo.get("state", "available") != "inactive",
+                    revision=((repo.get("mainbranch") or {}).get("target") or {}).get("hash", ""),
                 )
             next_url = page.get("next")
 

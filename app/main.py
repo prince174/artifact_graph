@@ -8,7 +8,7 @@ from .config import settings
 from .layout import layered_positions
 from .filters import filter_graph
 from .models import Base, Edge, Node, Scan, SessionLocal, engine
-from .service import refresh
+from .service import build_input_cache, refresh, source_cache
 from .subgraph import select_visible
 from .web import PAGE
 from .operations import prometheus_metrics, scan_duration_seconds
@@ -95,4 +95,13 @@ def metrics():
     with SessionLocal() as db:
         scans = db.query(Scan).order_by(Scan.id.desc()).limit(settings.scan_history_limit).all()
         node_count, edge_count = db.query(Node).count(), db.query(Edge).count()
-    return prometheus_metrics(scans, node_count, edge_count)
+    base = prometheus_metrics(scans, node_count, edge_count)
+    return base + "\n".join([
+        "# TYPE artifact_graph_incremental_cache_hits_total counter",
+        f'artifact_graph_incremental_cache_hits_total{{cache="build"}} {build_input_cache.hits}',
+        f'artifact_graph_incremental_cache_hits_total{{cache="source"}} {source_cache.hits}',
+        "# TYPE artifact_graph_incremental_cache_misses_total counter",
+        f'artifact_graph_incremental_cache_misses_total{{cache="build"}} {build_input_cache.misses}',
+        f'artifact_graph_incremental_cache_misses_total{{cache="source"}} {source_cache.misses}',
+        "",
+    ])

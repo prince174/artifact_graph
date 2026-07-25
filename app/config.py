@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./graph.db"
     refresh_minutes: int = 60
     scan_history_limit: int = 100
+    incremental_cache_size: int = 2000
     api_retry_attempts: int = 4
     api_retry_backoff_seconds: float = 0.5
     bitbucket_provider: str = "cloud"

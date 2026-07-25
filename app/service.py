@@ -13,9 +13,12 @@ from .source_analysis import build_source_paths, expand_scripts
 from .registry import RegistryCollector
 from .sbom import summarize_sbom
 from .visual_states import build_visual_state
+from .incremental import BoundedCache
 
 
 refresh_lock = asyncio.Lock()
+build_input_cache = BoundedCache(settings.incremental_cache_size)
+source_cache = BoundedCache(settings.incremental_cache_size)
 
 
 def _save(nodes, edges):
@@ -110,7 +113,15 @@ async def collect_live():
                 props = {p["name"]: p.get("value", "") for p in step.get("properties", {}).get("property", [])}
                 scripts.extend(resolve_teamcity_parameters(v, parameters) for k, v in props.items() if "script" in k.lower())
                 build_files.extend(build_source_paths(step.get("type", ""), props))
-            sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
+            source_key = (
+                tuple(sorted((repo.provider, repo.namespace, repo.slug, repo.revision) for repo in linked_repositories)),
+                tuple(sorted(scripts)), tuple(sorted(build_files)),
+            )
+            sources = source_cache.get(source_key)
+            if sources is None:
+                sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
+                if all(repo.revision for repo in linked_repositories):
+                    source_cache.put(source_key, sources)
             pushed_images = []
             for source in sources:
                 for push in find_pushes(source.text):
@@ -133,13 +144,20 @@ async def collect_live():
                         "confidence": "same_build_configuration",
                     })
             for build in await tc.builds(detail["id"]):
-                artifacts = await tc.artifacts(build["id"]) if build.get("state", "finished") == "finished" else []
-                for artifact in artifacts:
-                    if artifact.get("name", "").lower() == "sbom.json" and artifact.get("contentHref"):
-                        content, truncated = await tc.artifact_content(artifact["contentHref"])
-                        artifact.update(summarize_sbom(content, truncated=truncated))
-                        artifact.pop("contentHref", None)
-                build_log = await tc.build_log(build["id"]) if build.get("state", "finished") == "finished" else ""
+                finished = build.get("state", "finished") == "finished"
+                cached = build_input_cache.get(str(build["id"])) if finished else None
+                if cached is not None:
+                    artifacts, build_log = cached
+                else:
+                    artifacts = await tc.artifacts(build["id"]) if finished else []
+                    for artifact in artifacts:
+                        if artifact.get("name", "").lower() == "sbom.json" and artifact.get("contentHref"):
+                            content, truncated = await tc.artifact_content(artifact["contentHref"])
+                            artifact.update(summarize_sbom(content, truncated=truncated))
+                            artifact.pop("contentHref", None)
+                    build_log = await tc.build_log(build["id"]) if finished else ""
+                    if finished:
+                        build_input_cache.put(str(build["id"]), (artifacts, build_log))
                 node = build_node(build, pushed_images, artifacts, build_log)
                 run_id = node["id"]
                 nodes.append(node)
