@@ -1,4 +1,5 @@
 from collections import defaultdict
+import re
 
 
 def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[str, float]]:
@@ -55,7 +56,7 @@ def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[st
         positions[config_id] = _point(760, row)
         targets = sorted(
             (n for n in _targets(config_id, by_id, outgoing) if n["kind"] == "build"),
-            key=lambda n: n.get("label", ""),
+            key=_build_sort_key,
         )
         start = row - (len(targets) - 1) * 27.5
         for index, target in enumerate(targets):
@@ -84,6 +85,11 @@ def _average(values):
 
 def _sort_key(node):
     return node.get("label", "").casefold(), node["id"]
+
+
+def _build_sort_key(node):
+    match = re.search(r"\d+", node.get("label", ""))
+    return (int(match.group()) if match else -1, node["id"])
 
 
 def _point(x, y):

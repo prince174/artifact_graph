@@ -65,3 +65,12 @@ def test_build_hover_shows_compact_status_push_and_sbom_summary():
     assert "mouseout','node[kind = \"build\"]'" in PAGE
     assert "function showHover" in PAGE
     assert "Целевых артефактов нет" in PAGE
+
+
+def test_viewport_and_collapsed_branches_persist_across_reload():
+    assert "artifactGraph.ui.v1" in PAGE
+    assert "localStorage.getItem(UI_KEY)" in PAGE
+    assert "localStorage.setItem(UI_KEY" in PAGE
+    assert "zoom:cy.zoom(),pan:cy.pan(),collapsed:[...collapsed]" in PAGE
+    assert "cy.on('pan zoom',scheduleUiSave)" in PAGE
+    assert "localStorage.removeItem(UI_KEY)" in PAGE
