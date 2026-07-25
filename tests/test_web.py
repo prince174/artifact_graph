@@ -56,3 +56,12 @@ def test_outputs_are_build_details_not_separate_graph_nodes():
     assert "container_image" not in PAGE
     assert "Подтверждено по TeamCity build log" in PAGE
     assert "Найден как артефакт" in PAGE
+
+
+def test_build_hover_shows_compact_status_push_and_sbom_summary():
+    assert 'id="hover"' in PAGE
+    assert "mouseover','node[kind = \"build\"]'" in PAGE
+    assert "mousemove','node[kind = \"build\"]'" in PAGE
+    assert "mouseout','node[kind = \"build\"]'" in PAGE
+    assert "function showHover" in PAGE
+    assert "Целевых артефактов нет" in PAGE
