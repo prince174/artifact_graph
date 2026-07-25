@@ -92,7 +92,10 @@ async def collect_live():
             for clone_url in repo.clone_urls:
                 repo_by_url[normalize_url(clone_url)] = rid
         for summary in await tc.build_types():
-            detail = await tc.build_type(summary["id"])
+            try:
+                detail = await tc.build_type(summary["id"])
+            except httpx.HTTPError:
+                continue
             if detail.get("projectId") in {"_Root", "Root"}:
                 continue
             bid, pid = f"build-type:{detail['id']}", f"tc-project:{detail['projectId']}"
@@ -119,8 +122,13 @@ async def collect_live():
             )
             sources = source_cache.get(source_key)
             if sources is None:
-                sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
-                if all(repo.revision for repo in linked_repositories):
+                source_complete = True
+                try:
+                    sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
+                except httpx.HTTPError:
+                    sources = []
+                    source_complete = False
+                if source_complete and all(repo.revision for repo in linked_repositories):
                     source_cache.put(source_key, sources)
             pushed_images = []
             for source in sources:
@@ -149,15 +157,19 @@ async def collect_live():
                 if cached is not None:
                     artifacts, build_log = cached
                 else:
-                    artifacts = await tc.artifacts(build["id"]) if finished else []
-                    for artifact in artifacts:
-                        if artifact.get("name", "").lower() == "sbom.json" and artifact.get("contentHref"):
-                            content, truncated = await tc.artifact_content(artifact["contentHref"])
-                            artifact.update(summarize_sbom(content, truncated=truncated))
-                            artifact.pop("contentHref", None)
-                    build_log = await tc.build_log(build["id"]) if finished else ""
-                    if finished:
-                        build_input_cache.put(str(build["id"]), (artifacts, build_log))
+                    try:
+                        artifacts = await tc.artifacts(build["id"]) if finished else []
+                        for artifact in artifacts:
+                            if artifact.get("name", "").lower() == "sbom.json" and artifact.get("contentHref"):
+                                content, truncated = await tc.artifact_content(artifact["contentHref"])
+                                artifact.update(summarize_sbom(content, truncated=truncated))
+                                artifact.pop("contentHref", None)
+                        build_log = await tc.build_log(build["id"]) if finished else ""
+                        if finished:
+                            build_input_cache.put(str(build["id"]), (artifacts, build_log))
+                    except httpx.HTTPError as exc:
+                        artifacts, build_log = [], ""
+                        build["collectionError"] = type(exc).__name__
                 node = build_node(build, pushed_images, artifacts, build_log)
                 run_id = node["id"]
                 nodes.append(node)

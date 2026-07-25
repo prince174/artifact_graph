@@ -1,10 +1,12 @@
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
 
 import httpx
 
 from .config import settings
+from .provider_metrics import provider_metrics
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,8 @@ class RepositoryProvider(Protocol):
 
 
 class ApiClient:
-    def __init__(self, base_url: str, token: str, *, basic_user: str = ""):
+    def __init__(self, base_url: str, token: str, *, basic_user: str = "", provider: str = "api"):
+        self.provider = provider
         auth = httpx.BasicAuth(basic_user, token) if basic_user else None
         headers = {"Accept": "application/json"}
         if token and not auth:
@@ -42,18 +45,23 @@ class ApiClient:
     async def get_json(self, path: str, **params):
         attempts = max(1, settings.api_retry_attempts)
         for attempt in range(attempts):
+            started = time.monotonic()
             response = None
             try:
                 response = await self.client.get(path, params=params)
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     response.raise_for_status()
+                    provider_metrics.record(self.provider, "success", time.monotonic() - started)
                     return response.json()
                 response.raise_for_status()
             except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code not in {429, 500, 502, 503, 504}:
+                    provider_metrics.record(self.provider, "error", time.monotonic() - started)
                     raise
                 if attempt + 1 >= attempts:
+                    provider_metrics.record(self.provider, "error", time.monotonic() - started)
                     raise
+                provider_metrics.record(self.provider, "retry", time.monotonic() - started, retry=True)
                 retry_after = response.headers.get("Retry-After") if response is not None else None
                 delay = float(retry_after) if retry_after and retry_after.isdigit() else settings.api_retry_backoff_seconds * (2 ** attempt)
                 await asyncio.sleep(delay)
@@ -64,7 +72,7 @@ class ApiClient:
 
 class BitbucketDataCenterCollector(ApiClient):
     def __init__(self, base_url: str, token: str):
-        super().__init__(base_url, token)
+        super().__init__(base_url, token, provider="bitbucket")
         self.file_cache = {}
 
     async def repositories(self):
@@ -107,7 +115,7 @@ class BitbucketDataCenterCollector(ApiClient):
 
 class BitbucketCloudCollector(ApiClient):
     def __init__(self, workspace: str, token: str, email: str = ""):
-        super().__init__("https://api.bitbucket.org/2.0", token, basic_user=email)
+        super().__init__("https://api.bitbucket.org/2.0", token, basic_user=email, provider="bitbucket")
         self.workspace = workspace
         self.file_cache = {}
 
@@ -149,6 +157,9 @@ class BitbucketCloudCollector(ApiClient):
 
 
 class TeamCityCollector(ApiClient):
+    def __init__(self, base_url: str, token: str):
+        super().__init__(base_url, token, provider="teamcity")
+
     async def build_types(self):
         result, start, page_size = [], 0, 100
         while True:

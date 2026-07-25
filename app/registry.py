@@ -1,10 +1,12 @@
 import hashlib
+import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 import httpx
 
 from .config import settings
+from .provider_metrics import provider_metrics
 
 
 MANIFEST_ACCEPT = ", ".join([
@@ -56,8 +58,14 @@ class RegistryCollector:
         if reference.registry and reference.registry.lower() != self.registry_host.lower():
             return None
         path = f"/v2/{reference.repository}/manifests/{reference.reference}"
-        response = await self.client.get(path, headers={"Accept": MANIFEST_ACCEPT})
-        response.raise_for_status()
+        started = time.monotonic()
+        try:
+            response = await self.client.get(path, headers={"Accept": MANIFEST_ACCEPT})
+            response.raise_for_status()
+            provider_metrics.record("registry", "success", time.monotonic() - started)
+        except (httpx.HTTPError, httpx.TransportError):
+            provider_metrics.record("registry", "error", time.monotonic() - started)
+            raise
         digest = response.headers.get("Docker-Content-Digest") or f"sha256:{hashlib.sha256(response.content).hexdigest()}"
         return {
             "registryProvider": settings.registry_provider,

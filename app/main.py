@@ -12,6 +12,7 @@ from .service import build_input_cache, refresh, source_cache
 from .subgraph import select_visible
 from .web import PAGE
 from .operations import prometheus_metrics, scan_duration_seconds
+from .provider_metrics import provider_metrics
 
 scheduler = AsyncIOScheduler()
 
@@ -104,4 +105,4 @@ def metrics():
         f'artifact_graph_incremental_cache_misses_total{{cache="build"}} {build_input_cache.misses}',
         f'artifact_graph_incremental_cache_misses_total{{cache="source"}} {source_cache.misses}',
         "",
-    ])
+    ]) + provider_metrics.prometheus()
