@@ -20,3 +20,15 @@ def test_diff_reports_added_removed_and_changed_nodes_and_edges():
     assert diff["nodes"] == {"added": ["added"], "removed": ["gone"], "changed": ["a"]}
     assert diff["edges"]["added"] == [["a", "added", "contains"]]
     assert diff["edges"]["removed"] == [["a", "gone", "contains"]]
+    assert diff["details"]["added"][0]["id"] == "added"
+    assert diff["details"]["removed"][0]["id"] == "gone"
+    assert diff["details"]["changed"][0]["before"]["label"] == "old"
+
+
+def test_diff_highlights_build_output_changes():
+    before = {"nodes": [{"id": "build:1", "hasSbom": False, "pushedImages": []}]}
+    after = {"nodes": [{"id": "build:1", "hasSbom": True, "pushedImages": [{"image": "repo:1"}]}]}
+    change = diff_graphs(before, after)["outputChanges"][0]
+    assert change["id"] == "build:1"
+    assert change["before"]["hasSbom"] is False
+    assert change["after"]["pushedImages"] == [{"image": "repo:1"}]

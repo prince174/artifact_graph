@@ -74,3 +74,12 @@ def test_viewport_and_collapsed_branches_persist_across_reload():
     assert "zoom:cy.zoom(),pan:cy.pan(),collapsed:[...collapsed]" in PAGE
     assert "cy.on('pan zoom',scheduleUiSave)" in PAGE
     assert "localStorage.removeItem(UI_KEY)" in PAGE
+
+
+def test_snapshot_diff_controls_and_highlights_are_present():
+    assert 'id="snapshotBefore"' in PAGE
+    assert 'id="snapshotAfter"' in PAGE
+    assert "function compareSnapshots" in PAGE
+    assert "/api/snapshots/" in PAGE
+    assert ".diff-added" in PAGE
+    assert "Изменения push / SBOM" in PAGE
