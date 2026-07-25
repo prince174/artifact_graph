@@ -10,7 +10,7 @@ def test_build_detail_ui_has_status_and_clickable_artifact_support():
 
 
 def test_ui_has_server_filters_and_collapsible_branches():
-    for control in ("bbProject", "tcProject", "statusFilter", "engineFilter", "imageFilter", "sbomFilter", "targetOnly", "outputsMode", "sinceDays"):
+    for control in ("bbProject", "tcProject", "statusFilter", "engineFilter", "imageFilter", "sbomFilter", "targetOnly", "sinceDays"):
         assert f'id="{control}"' in PAGE
     assert "function toggleCollapse" in PAGE
     assert "function descendants" in PAGE
@@ -49,3 +49,10 @@ def test_ui_preserves_viewport_explains_color_and_polls_for_new_scan():
     assert "Причина цвета" in PAGE
     assert "setInterval(status,60000)" in PAGE
     assert "lastScanFinished" in PAGE
+
+
+def test_outputs_are_build_details_not_separate_graph_nodes():
+    assert "outputsMode" not in PAGE
+    assert "container_image" not in PAGE
+    assert "Подтверждено по TeamCity build log" in PAGE
+    assert "Найден как артефакт" in PAGE

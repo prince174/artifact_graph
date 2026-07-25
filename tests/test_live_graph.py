@@ -71,14 +71,10 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
     assert ("repo:workspace/api", "tc-project:Demo", "maps_to") in relations
     assert not any(node["id"] in {"tc-project:_Root", "build-type:Root_Config"} for node in nodes)
     assert ("build-type:Demo_01", "build:42", "ran_as") in relations
-    assert ("build:42", "image:registry:5000/api:1", "pushed_image") in relations
-    assert ("build:42", "artifact:build-type:Demo_01/sbom.json", "produced_sbom") in relations
-    assert ("build-type:Demo_01", "image:registry:5000/api:1", "pushes") in relations
-    assert ("build-type:Demo_01", "artifact:build-type:Demo_01/sbom.json", "publishes") in relations
-    assert ("image:registry:5000/api:1", "artifact:build-type:Demo_01/sbom.json", "described_by") in relations
+    assert not any(node["kind"] in {"container_image", "sbom"} for node in nodes)
+    assert not any(edge["relation"] in {"pushes", "publishes", "pushed_image", "produced_sbom", "described_by"} for edge in edges)
     assert not any(relation in {"snapshot_depends_on", "uses_artifacts_from"} for _, _, relation in relations)
-    push_edge = next(edge for edge in edges if edge["relation"] == "pushes")
-    assert "workspace/api/ci/build.sh" in push_edge["evidence"]
+    assert by_id["build:42"]["pushedImages"][0]["evidence"] == "teamcity_build_log"
 
 
 def test_demo_dataset_has_full_ten_repo_five_build_fixture():

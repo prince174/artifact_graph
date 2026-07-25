@@ -27,12 +27,15 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
         return [by_id[edge["target"]] for edge in outgoing.get(config_id, [])
                 if edge["relation"] == relation and edge["target"] in by_id and (kind is None or by_id[edge["target"]]["kind"] == kind)]
 
+    def builds(config_id):
+        return targets(config_id, "ran_as", "build")
+
     if engine:
-        configurations = {config for config in configurations if any(node.get("engine") == engine for node in targets(config, "pushes", "container_image"))}
+        configurations = {config for config in configurations if any(image.get("engine") == engine for node in builds(config) for image in node.get("pushedImages", []))}
     if has_image is not None:
-        configurations = {config for config in configurations if bool(targets(config, "pushes", "container_image")) == has_image}
+        configurations = {config for config in configurations if any(node.get("hasImagePush") for node in builds(config)) == has_image}
     if has_sbom is not None:
-        configurations = {config for config in configurations if bool(targets(config, "publishes", "sbom")) == has_sbom}
+        configurations = {config for config in configurations if any(node.get("hasSbom") for node in builds(config)) == has_sbom}
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=since_days) if since_days else None
 

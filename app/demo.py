@@ -35,20 +35,13 @@ def dataset():
             if stage.key == "Build" and command:
                 engine, image = command.split()[0], command.split()[2]
                 image_id = f"image:{image}"
-                nodes.append({"id": image_id, "kind": "container_image", "label": image, "engine": engine})
-                edges.append({"source": build_id, "target": image_id, "relation": "pushes", "evidence": command})
             if stage.key == "Build" and i % 2:
                 sbom_id = f"artifact:{build_id}/sbom.json"
-                nodes.append({"id": sbom_id, "kind": "sbom", "label": "sbom.json", "rule": "**/sbom.json => artifacts"})
-                edges.append({"source": build_id, "target": sbom_id, "relation": "publishes", "evidence": "**/sbom.json => artifacts"})
             for n in range(3):
                 run_id = f"build:{build_id}/{100-n}"
                 successful = n != 1
                 state = "running" if i == 10 and stage.key == "Test" and n == 0 else "queued" if i == 10 and stage.key == "Build" and n == 0 else "finished"
-                nodes.append({"id": run_id, "kind": "build", "label": f"#{100-n}", "state": state, "status": "SUCCESS" if successful else "FAILURE", "date": (now-timedelta(days=n)).isoformat(), "hasImagePush": bool(image_id and successful and state == "finished"), "hasSbom": bool(sbom_id and successful and state == "finished")})
+                has_image, has_sbom = bool(image_id and successful and state == "finished"), bool(sbom_id and successful and state == "finished")
+                nodes.append({"id": run_id, "kind": "build", "label": f"#{100-n}", "state": state, "status": "SUCCESS" if successful else "FAILURE", "date": (now-timedelta(days=n)).isoformat(), "hasImagePush": has_image, "hasSbom": has_sbom, "pushedImages": [{"engine": engine, "image": image, "evidence": "teamcity_build_log"}] if has_image else [], "sbomArtifacts": [{"name": "sbom.json", "path": "artifacts/sbom.json", "artifactRule": "**/sbom.json => artifacts", "sbomStatus": "valid"}] if has_sbom else []})
                 edges.append({"source": build_id, "target": run_id, "relation": "ran_as"})
-                if image_id and successful:
-                    edges.append({"source": run_id, "target": image_id, "relation": "pushed_image"})
-                if sbom_id and successful:
-                    edges.append({"source": run_id, "target": sbom_id, "relation": "produced_sbom"})
     return nodes, edges

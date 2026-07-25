@@ -31,7 +31,7 @@ def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[st
                     rows.append(config_rows[config["id"]])
                     tc_rows[tc_project["id"]].append(config_rows[config["id"]])
                     continue
-                outputs = [n for n in _targets(config["id"], by_id, outgoing) if n["kind"] in {"build", "container_image", "sbom"}]
+                outputs = [n for n in _targets(config["id"], by_id, outgoing) if n["kind"] == "build"]
                 lane_height = max(140, 55 * max(1, len(outputs)) + 45)
                 row = cursor + lane_height / 2
                 config_rows[config["id"]] = row
@@ -54,8 +54,8 @@ def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[st
     for config_id, row in config_rows.items():
         positions[config_id] = _point(760, row)
         targets = sorted(
-            (n for n in _targets(config_id, by_id, outgoing) if n["kind"] in {"build", "container_image", "sbom"}),
-            key=lambda n: ({"container_image": 0, "sbom": 1, "build": 2}.get(n["kind"], 9), n.get("label", "")),
+            (n for n in _targets(config_id, by_id, outgoing) if n["kind"] == "build"),
+            key=lambda n: n.get("label", ""),
         )
         start = row - (len(targets) - 1) * 27.5
         for index, target in enumerate(targets):

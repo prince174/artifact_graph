@@ -144,24 +144,12 @@ async def collect_live():
             pushed_images = []
             for source in sources:
                 for push in find_pushes(source.text):
-                    iid = f"image:{push['image']}"
                     if push["image"] not in manifest_cache:
                         manifest_cache[push["image"]] = await registry_manifest(registry, push["image"])
                     manifest = manifest_cache[push["image"]]
-                    nodes.append({"id": iid, "kind": "container_image", "label": push["image"], "engine": push["engine"], **manifest})
-                    edges.append({"source": bid, "target": iid, "relation": "pushes", "evidence": source.path})
                     pushed_images.append({"image": push["image"], "engine": push["engine"], "evidence": source.path, **manifest})
             artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
-            aid = None
-            if publishes_sbom(artifact_rules):
-                aid = f"artifact:{bid}/sbom.json"
-                nodes.append({"id": aid, "kind": "sbom", "label": "sbom.json", "rule": artifact_rules})
-                edges.append({"source": bid, "target": aid, "relation": "publishes", "evidence": artifact_rules})
-                for image in pushed_images:
-                    edges.append({
-                        "source": f"image:{image['image']}", "target": aid, "relation": "described_by",
-                        "confidence": "same_build_configuration",
-                    })
+            sbom_rule = artifact_rules if publishes_sbom(artifact_rules) else ""
             for build in await tc.builds(detail["id"]):
                 finished = build.get("state", "finished") == "finished"
                 cached = build_input_cache.get(str(build["id"])) if finished else None
@@ -171,24 +159,26 @@ async def collect_live():
                     try:
                         artifacts = await tc.artifacts(build["id"]) if finished else []
                         for artifact in artifacts:
-                            if artifact.get("name", "").lower() == "sbom.json" and artifact.get("contentHref"):
+                            is_sbom = artifact.get("name", "").lower() == "sbom.json"
+                            if is_sbom and artifact.get("contentHref"):
                                 content, truncated = await tc.artifact_content(artifact["contentHref"])
                                 artifact.update(summarize_sbom(content, truncated=truncated))
-                                artifact.pop("contentHref", None)
+                            artifact.pop("contentHref", None)
+                            if is_sbom:
+                                artifact["artifactRule"] = sbom_rule
                         build_log = await tc.build_log(build["id"]) if finished else ""
                         if finished:
                             build_input_cache.put(str(build["id"]), (artifacts, build_log))
                     except httpx.HTTPError as exc:
                         artifacts, build_log = [], ""
                         build["collectionError"] = type(exc).__name__
+                for artifact in artifacts:
+                    if artifact.get("name", "").lower() == "sbom.json":
+                        artifact["artifactRule"] = sbom_rule
                 node = build_node(build, pushed_images, artifacts, build_log)
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
-                for image in node["pushedImages"]:
-                    edges.append({"source": run_id, "target": f"image:{image['image']}", "relation": "pushed_image"})
-                if aid and node["sbomArtifacts"]:
-                    edges.append({"source": run_id, "target": aid, "relation": "produced_sbom"})
         nodes, edges = deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
         annotate_visual_state(nodes, edges)
         return nodes, edges
