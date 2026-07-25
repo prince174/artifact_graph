@@ -8,12 +8,13 @@ from .analyzer import find_executed_pushes, find_pushes, publishes_sbom, resolve
 from .collectors import TeamCityCollector, repository_provider, teamcity_properties
 from .config import settings
 from .demo import dataset
-from .models import Edge, Node, Scan, SessionLocal
+from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal
 from .source_analysis import build_source_paths, expand_scripts
 from .registry import RegistryCollector
 from .sbom import summarize_sbom
 from .visual_states import build_visual_state
 from .incremental import BoundedCache
+from .snapshots import canonical_graph
 
 
 refresh_lock = asyncio.Lock()
@@ -62,6 +63,7 @@ async def refresh():
                 nodes, edges = await collect_live()
             annotate_visual_state(nodes, edges)
             _save(nodes, edges)
+            _save_snapshot(scan.id, nodes, edges)
             status, message = "success", f"{len(nodes)} nodes, {len(edges)} edges"
         except Exception as exc:
             status, message = "failed", str(exc)
@@ -73,6 +75,15 @@ async def refresh():
                 old_ids = [item[0] for item in db.query(Scan.id).order_by(Scan.id.desc()).offset(settings.scan_history_limit).all()]
                 if old_ids:
                     db.query(Scan).filter(Scan.id.in_(old_ids)).delete(synchronize_session=False)
+
+
+def _save_snapshot(scan_id: int, nodes: list[dict], edges: list[dict]) -> None:
+    payload, content_hash = canonical_graph(nodes, edges)
+    with SessionLocal.begin() as db:
+        db.add(GraphSnapshot(scan_id=scan_id, node_count=len(nodes), edge_count=len(edges), content_hash=content_hash, payload=payload))
+        old_ids = [item[0] for item in db.query(GraphSnapshot.id).order_by(GraphSnapshot.id.desc()).offset(settings.snapshot_history_limit).all()]
+        if old_ids:
+            db.query(GraphSnapshot).filter(GraphSnapshot.id.in_(old_ids)).delete(synchronize_session=False)
 
 
 async def collect_live():

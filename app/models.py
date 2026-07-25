@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from .config import settings
 
@@ -35,6 +35,16 @@ class Scan(Base):
     message: Mapped[str] = mapped_column(Text, default="")
 
 
+class GraphSnapshot(Base):
+    __tablename__ = "graph_snapshots"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    scan_id: Mapped[int] = mapped_column(ForeignKey("scans.id", ondelete="CASCADE"), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    node_count: Mapped[int] = mapped_column(Integer)
+    edge_count: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[str] = mapped_column(Text)
+
+
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
-

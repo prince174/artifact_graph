@@ -7,12 +7,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from .layout import layered_positions
 from .filters import filter_graph
-from .models import Base, Edge, Node, Scan, SessionLocal, engine
+from .models import Base, Edge, GraphSnapshot, Node, Scan, SessionLocal, engine
 from .service import build_input_cache, refresh, source_cache
 from .subgraph import select_visible
 from .web import PAGE
 from .operations import prometheus_metrics, scan_duration_seconds
 from .provider_metrics import provider_metrics
+from .snapshots import diff_graphs
 
 scheduler = AsyncIOScheduler()
 
@@ -106,3 +107,19 @@ def metrics():
         f'artifact_graph_incremental_cache_misses_total{{cache="source"}} {source_cache.misses}',
         "",
     ]) + provider_metrics.prometheus()
+
+
+@app.get("/api/snapshots")
+def snapshots(limit: int = 20):
+    with SessionLocal() as db:
+        rows = db.query(GraphSnapshot).order_by(GraphSnapshot.id.desc()).limit(min(max(limit, 1), 100)).all()
+    return [{"id": row.id, "scanId": row.scan_id, "createdAt": row.created_at, "nodeCount": row.node_count, "edgeCount": row.edge_count, "hash": row.content_hash} for row in rows]
+
+
+@app.get("/api/snapshots/{before_id}/diff/{after_id}")
+def snapshot_diff(before_id: int, after_id: int):
+    with SessionLocal() as db:
+        before, after = db.get(GraphSnapshot, before_id), db.get(GraphSnapshot, after_id)
+    if not before or not after:
+        raise HTTPException(404, "Snapshot not found")
+    return {"before": before_id, "after": after_id, **diff_graphs(json.loads(before.payload), json.loads(after.payload))}
