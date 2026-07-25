@@ -117,3 +117,17 @@ docker compose exec -T postgres psql -U graph graph < artifact-graph.sql
 
 Back up the named volumes before a destructive recreation of TeamCity or the local
 registry. A normal `docker compose up -d --build` preserves all named volumes.
+
+Automated backup verification and schema migrations:
+
+```bash
+bash scripts/backup.sh
+bash scripts/verify-backup.sh backups/artifact-graph-YYYYmmddTHHMMSSZ.dump
+# Destructive restore requires an explicit flag:
+bash scripts/restore.sh backups/artifact-graph-YYYYmmddTHHMMSSZ.dump --confirm
+docker compose exec -T graph alembic current
+```
+
+The graph container runs `alembic upgrade head` before starting the API. Release
+images expose `GET /api/version`, include the Git commit as an OCI image label,
+and are built by `.github/workflows/ci.yml` for version tags.

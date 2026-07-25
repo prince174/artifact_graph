@@ -7,10 +7,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from .layout import layered_positions
 from .filters import filter_graph
-from .models import Base, Edge, GraphSnapshot, Node, Scan, SessionLocal, engine
+from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal
 from .service import build_input_cache, refresh, source_cache
 from .subgraph import select_visible
 from .web import PAGE
+from .version import __version__
 from .operations import prometheus_metrics, scan_duration_seconds
 from .provider_metrics import provider_metrics
 from .snapshots import diff_graphs
@@ -20,7 +21,6 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app):
-    Base.metadata.create_all(engine)
     await refresh()
     scheduler.add_job(refresh, "interval", minutes=settings.refresh_minutes, id="refresh", max_instances=1, coalesce=True)
     scheduler.start()
@@ -28,11 +28,15 @@ async def lifespan(app):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Artefact Graph", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Artefact Graph", version=__version__, lifespan=lifespan)
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(): return PAGE
+
+
+@app.get("/api/version")
+def version(): return {"version": __version__}
 
 
 @app.get("/api/graph")

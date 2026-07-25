@@ -8,3 +8,5 @@ build/
 .idea/
 .vscode/
 atlassian-extras-decoder-*.jar
+backups/
+*.dump
