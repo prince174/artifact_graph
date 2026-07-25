@@ -9,17 +9,22 @@ from .collectors import TeamCityCollector, repository_provider, teamcity_propert
 from .config import settings
 from .demo import dataset
 from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal
-from .source_analysis import build_source_paths, expand_scripts
+from .source_analysis import ScriptSource, build_source_paths, expand_scripts
 from .registry import RegistryCollector
 from .sbom import summarize_sbom
 from .visual_states import build_visual_state
 from .incremental import BoundedCache
 from .snapshots import canonical_graph
+from .persistent_cache import PersistentCache
 
 
 refresh_lock = asyncio.Lock()
 build_input_cache = BoundedCache(settings.incremental_cache_size)
 source_cache = BoundedCache(settings.incremental_cache_size)
+
+
+def _persistent(namespace: str) -> PersistentCache:
+    return PersistentCache(SessionLocal, namespace, settings.persistent_cache_ttl_hours, settings.persistent_cache_max_rows)
 
 
 def _save(nodes, edges):
@@ -133,14 +138,21 @@ async def collect_live():
             )
             sources = source_cache.get(source_key)
             if sources is None:
-                source_complete = True
-                try:
-                    sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
-                except httpx.HTTPError:
-                    sources = []
-                    source_complete = False
-                if source_complete and all(repo.revision for repo in linked_repositories):
+                persistent = _persistent("source")
+                stored = persistent.get(source_key)
+                if stored is not None:
+                    sources = [ScriptSource(**item) for item in stored]
                     source_cache.put(source_key, sources)
+                else:
+                    source_complete = True
+                    try:
+                        sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
+                    except httpx.HTTPError:
+                        sources = []
+                        source_complete = False
+                    if source_complete and all(repo.revision for repo in linked_repositories):
+                        source_cache.put(source_key, sources)
+                        persistent.put(source_key, [{"path": item.path, "text": item.text} for item in sources])
             pushed_images = []
             for source in sources:
                 for push in find_pushes(source.text):
@@ -153,6 +165,13 @@ async def collect_live():
             for build in await tc.builds(detail["id"]):
                 finished = build.get("state", "finished") == "finished"
                 cached = build_input_cache.get(str(build["id"])) if finished else None
+                persistent_build = _persistent("build")
+                build_key = (settings.teamcity_url.rstrip("/"), str(build["id"]), build.get("finishDate"))
+                if cached is None and finished:
+                    stored = persistent_build.get(build_key)
+                    cached = (stored["artifacts"], stored["buildLog"]) if stored is not None else None
+                    if cached is not None:
+                        build_input_cache.put(str(build["id"]), cached)
                 if cached is not None:
                     artifacts, build_log = cached
                 else:
@@ -169,6 +188,7 @@ async def collect_live():
                         build_log = await tc.build_log(build["id"]) if finished else ""
                         if finished:
                             build_input_cache.put(str(build["id"]), (artifacts, build_log))
+                            persistent_build.put(build_key, {"artifacts": artifacts, "buildLog": build_log})
                     except httpx.HTTPError as exc:
                         artifacts, build_log = [], ""
                         build["collectionError"] = type(exc).__name__

@@ -46,5 +46,14 @@ class GraphSnapshot(Base):
     payload: Mapped[str] = mapped_column(Text)
 
 
+class PersistentCacheEntry(Base):
+    __tablename__ = "persistent_cache"
+    namespace: Mapped[str] = mapped_column(String(40), primary_key=True)
+    cache_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
