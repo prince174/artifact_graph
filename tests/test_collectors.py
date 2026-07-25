@@ -168,3 +168,22 @@ async def test_teamcity_requests_paused_configs_and_latest_builds_in_any_state()
     assert "paused" in requests[0].url.params["fields"]
     assert "state:any" in requests[1].url.params["locator"]
     assert "count:3" in requests[1].url.params["locator"]
+    assert "defaultFilter:false" in requests[1].url.params["locator"]
+    assert requests[2].url.path == "/app/rest/buildQueue"
+
+
+@pytest.mark.asyncio
+async def test_teamcity_merges_queue_with_recent_builds_without_duplicates():
+    def handler(request):
+        if request.url.path.endswith("buildQueue"):
+            return httpx.Response(200, json={"build": [{"id": 3, "state": "queued"}]})
+        return httpx.Response(200, json={"build": [{"id": 3, "state": "queued"}, {"id": 2, "state": "finished"}, {"id": 1, "state": "finished"}]})
+
+    collector = TeamCityCollector("http://teamcity", "token")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://teamcity")
+    try:
+        builds = await collector.builds("Cfg")
+    finally:
+        await collector.close()
+    assert [build["id"] for build in builds] == [3, 2, 1]

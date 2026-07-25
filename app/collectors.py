@@ -167,8 +167,17 @@ class TeamCityCollector(ApiClient):
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
-        data = await self.get_json("/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:3", fields="build(id,number,status,state,statusText,startDate,finishDate,webUrl)")
-        return data.get("build", [])
+        fields = "build(id,buildTypeId,number,status,state,statusText,queuedDate,startDate,finishDate,webUrl)"
+        data = await self.get_json(
+            "/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:3,defaultFilter:false", fields=fields,
+        )
+        queued = await self.get_json(
+            "/app/rest/buildQueue", locator=f"buildType:(id:{build_type_id})", fields=fields,
+        )
+        result = {}
+        for build in queued.get("build", []) + data.get("build", []):
+            result[str(build["id"])] = build
+        return list(result.values())[:3]
 
     async def build_log(self, build_id: str, max_bytes: int = 5_000_000) -> str:
         chunks, size = [], 0
