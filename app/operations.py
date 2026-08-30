@@ -17,6 +17,7 @@ def prometheus_metrics(scans, node_count: int, edge_count: int, now: datetime | 
     latest = scans[0] if scans else None
     success = sum(scan.status == "success" for scan in scans)
     failed = sum(scan.status == "failed" for scan in scans)
+    degraded = sum(scan.status == "degraded" for scan in scans)
     age = 0.0
     if latest and latest.finished_at:
         finished = latest.finished_at
@@ -27,6 +28,7 @@ def prometheus_metrics(scans, node_count: int, edge_count: int, now: datetime | 
         "# TYPE artifact_graph_scans_total counter",
         f'artifact_graph_scans_total{{status="success"}} {success}',
         f'artifact_graph_scans_total{{status="failed"}} {failed}',
+        f'artifact_graph_scans_total{{status="degraded"}} {degraded}',
         "# TYPE artifact_graph_last_scan_duration_seconds gauge",
         f"artifact_graph_last_scan_duration_seconds {scan_duration_seconds(latest):.3f}",
         "# TYPE artifact_graph_last_scan_age_seconds gauge",

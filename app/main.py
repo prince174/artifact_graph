@@ -7,7 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from .layout import layered_positions
 from .filters import filter_graph
-from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal
+from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal, WebhookDelivery
 from .service import build_input_cache, refresh, source_cache
 from .subgraph import paginate_mapping_issues, select_visible_page
 from .web import PAGE
@@ -17,6 +17,7 @@ from .provider_metrics import provider_metrics
 from .snapshots import diff_graphs
 from .auth import AuthMiddleware, login, login_page, logout_response
 from .mapping_quality import coverage_report
+from .alerts import dispatch_webhooks
 
 scheduler = AsyncIOScheduler()
 
@@ -25,6 +26,7 @@ scheduler = AsyncIOScheduler()
 async def lifespan(app):
     await refresh()
     scheduler.add_job(refresh, "interval", minutes=settings.refresh_minutes, id="refresh", max_instances=1, coalesce=True)
+    scheduler.add_job(dispatch_webhooks, "interval", minutes=1, id="webhook-outbox", max_instances=1, coalesce=True)
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
@@ -145,6 +147,8 @@ def metrics():
     with SessionLocal() as db:
         scans = db.query(Scan).order_by(Scan.id.desc()).limit(settings.scan_history_limit).all()
         node_count, edge_count = db.query(Node).count(), db.query(Edge).count()
+        webhook_pending = db.query(WebhookDelivery).filter(WebhookDelivery.status == "pending").count()
+        webhook_dead = db.query(WebhookDelivery).filter(WebhookDelivery.status == "dead").count()
     base = prometheus_metrics(scans, node_count, edge_count)
     return base + "\n".join([
         "# TYPE artifact_graph_incremental_cache_hits_total counter",
@@ -153,6 +157,10 @@ def metrics():
         "# TYPE artifact_graph_incremental_cache_misses_total counter",
         f'artifact_graph_incremental_cache_misses_total{{cache="build"}} {build_input_cache.misses}',
         f'artifact_graph_incremental_cache_misses_total{{cache="source"}} {source_cache.misses}',
+        "",
+        "# TYPE artifact_graph_webhook_deliveries gauge",
+        f'artifact_graph_webhook_deliveries{{status="pending"}} {webhook_pending}',
+        f'artifact_graph_webhook_deliveries{{status="dead"}} {webhook_dead}',
         "",
     ]) + provider_metrics.prometheus()
 

@@ -126,6 +126,11 @@ The file is validated with safe YAML loading on every refresh.
 
 ## Operations
 
+Optional signed webhooks use a persistent outbox, so receiver failures never fail a
+scan. Enable them with `WEBHOOK_ENABLED=true`, an HTTPS `WEBHOOK_URL`, and a random
+`WEBHOOK_SECRET` of at least 24 characters. Events include `scan.degraded`,
+`scan.recovered`, and `graph.outputs.changed`; deliveries are retried asynchronously.
+
 - `GET /health/live` checks that the process is alive.
 - `GET /health/ready` checks PostgreSQL and requires at least one successful scan.
 - `GET /metrics` exposes Prometheus scan, graph-size, duration, and age metrics.

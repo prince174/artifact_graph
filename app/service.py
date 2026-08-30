@@ -19,6 +19,7 @@ from .persistent_cache import PersistentCache
 from .diagnostics import upstream_failure, upstream_message
 from .mapping_quality import annotate_mapping_quality
 from .mapping_rules import load_mapping_rules, resolve_mapping
+from .alerts import enqueue_scan_alerts
 
 
 refresh_lock = asyncio.Lock()
@@ -109,6 +110,7 @@ async def refresh():
             with SessionLocal.begin() as db:
                 row = db.get(Scan, scan.id)
                 row.status, row.message, row.details, row.finished_at = status, message, json.dumps(scan_details), datetime.now(timezone.utc)
+                enqueue_scan_alerts(db, row)
                 old_ids = [item[0] for item in db.query(Scan.id).order_by(Scan.id.desc()).offset(settings.scan_history_limit).all()]
                 if old_ids:
                     db.query(Scan).filter(Scan.id.in_(old_ids)).delete(synchronize_session=False)

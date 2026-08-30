@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     web_login_attempts: int = 5
     web_login_window_seconds: int = 300
     mapping_rules_path: str = ""
+    webhook_enabled: bool = False
+    webhook_url: str = ""
+    webhook_secret: str = ""
+    webhook_verify_tls: bool = True
+    webhook_allow_http: bool = False
+    webhook_timeout_seconds: float = 5.0
+    webhook_max_attempts: int = 6
 
 
 settings = Settings()

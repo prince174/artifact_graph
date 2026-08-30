@@ -56,5 +56,19 @@ class PersistentCacheEntry(Base):
     accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    event_key: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(60), index=True)
+    payload: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    last_status: Mapped[str] = mapped_column(String(120), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)

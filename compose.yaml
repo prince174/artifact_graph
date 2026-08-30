@@ -42,6 +42,13 @@ services:
       WEB_LOGIN_ATTEMPTS: ${WEB_LOGIN_ATTEMPTS:-5}
       WEB_LOGIN_WINDOW_SECONDS: ${WEB_LOGIN_WINDOW_SECONDS:-300}
       MAPPING_RULES_PATH: ${MAPPING_RULES_PATH:-/app/config/mapping-rules.yaml}
+      WEBHOOK_ENABLED: ${WEBHOOK_ENABLED:-false}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      WEBHOOK_VERIFY_TLS: ${WEBHOOK_VERIFY_TLS:-true}
+      WEBHOOK_ALLOW_HTTP: ${WEBHOOK_ALLOW_HTTP:-false}
+      WEBHOOK_TIMEOUT_SECONDS: ${WEBHOOK_TIMEOUT_SECONDS:-5}
+      WEBHOOK_MAX_ATTEMPTS: ${WEBHOOK_MAX_ATTEMPTS:-6}
     volumes:
       - ./config/mapping-rules.yaml:/app/config/mapping-rules.yaml:ro
     ports:
