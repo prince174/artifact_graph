@@ -95,3 +95,10 @@ def test_ui_loads_session_and_sends_csrf_for_refresh():
     assert "fetch('/api/session')" in PAGE
     assert "csrfToken=session.csrf" in PAGE
     assert "'X-CSRF-Token':csrfToken" in PAGE
+
+
+def test_degraded_status_shows_safe_upstream_diagnostics():
+    assert "s.lastScan?.upstream" in PAGE
+    assert "u.httpStatus" in PAGE
+    assert "u.endpoint" in PAGE
+    assert "retries" in PAGE

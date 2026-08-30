@@ -45,6 +45,7 @@ async def test_failed_refresh_serves_previous_graph_as_degraded(sqlite_session, 
         assert json.loads(db.get(Node, "stable").data)["stale"] is True
         scan = db.query(Scan).one()
         assert scan.status == "degraded"
+        assert json.loads(scan.details)["errorType"] == "RuntimeError"
 
 
 @pytest.mark.asyncio

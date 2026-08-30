@@ -16,6 +16,7 @@ from .visual_states import build_visual_state
 from .incremental import BoundedCache
 from .snapshots import canonical_graph
 from .persistent_cache import PersistentCache
+from .diagnostics import upstream_failure, upstream_message
 
 
 refresh_lock = asyncio.Lock()
@@ -78,6 +79,7 @@ async def refresh():
             scan = Scan()
             db.add(scan)
         previous_nodes, previous_edges = _load_graph()
+        scan_details = {}
         try:
             if settings.app_mode == "demo":
                 nodes, edges = dataset()
@@ -90,18 +92,20 @@ async def refresh():
             status = "degraded" if stale_count else "success"
             message = f"{len(nodes)} nodes, {len(edges)} edges" + (f"; {stale_count} stale" if stale_count else "")
         except Exception as exc:
+            scan_details = upstream_failure(exc)
             if previous_nodes:
-                nodes = _mark_stale(previous_nodes, f"{type(exc).__name__}: {exc}")
+                failure = upstream_message(scan_details)
+                nodes = _mark_stale(previous_nodes, failure)
                 _save(nodes, previous_edges)
                 _save_snapshot(scan.id, nodes, previous_edges)
-                status, message = "degraded", f"upstream unavailable; serving {len(nodes)} stale nodes: {type(exc).__name__}"
+                status, message = "degraded", f"upstream unavailable; serving {len(nodes)} stale nodes: {failure}"
             else:
                 status, message = "failed", str(exc)
                 raise
         finally:
             with SessionLocal.begin() as db:
                 row = db.get(Scan, scan.id)
-                row.status, row.message, row.finished_at = status, message, datetime.now(timezone.utc)
+                row.status, row.message, row.details, row.finished_at = status, message, json.dumps(scan_details), datetime.now(timezone.utc)
                 old_ids = [item[0] for item in db.query(Scan.id).order_by(Scan.id.desc()).offset(settings.scan_history_limit).all()]
                 if old_ids:
                     db.query(Scan).filter(Scan.id.in_(old_ids)).delete(synchronize_session=False)

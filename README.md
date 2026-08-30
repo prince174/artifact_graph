@@ -31,6 +31,8 @@ BITBUCKET_AUTH=api_token
 BITBUCKET_EMAIL=reader@example.com
 BITBUCKET_TOKEN=...
 TEAMCITY_TOKEN=...
+WEB_USERNAME=root
+WEB_PASSWORD=use-a-long-random-password
 ```
 
 Для workspace/project access token используйте `BITBUCKET_AUTH=access_token` и оставьте
@@ -96,6 +98,13 @@ REGISTRY_TOKEN=read-only-token
 
 Use a read-only account. `REGISTRY_URL` is the address available inside the graph
 container; `REGISTRY_PUBLIC_URL` is used for links shown in the browser.
+
+## Web authentication
+
+The web UI and `/api/*` use a signed HttpOnly session cookie. Set `WEB_USERNAME`
+and a long random `WEB_PASSWORD` only in `.env`; never commit the real password.
+State-changing requests also require the session CSRF token. Health endpoints and
+Prometheus metrics remain available for container orchestration and monitoring.
 
 ## Operations
 

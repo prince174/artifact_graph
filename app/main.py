@@ -84,7 +84,7 @@ async def manual_refresh():
 def status():
     with SessionLocal() as db:
         scan = db.query(Scan).order_by(Scan.id.desc()).first()
-    return {"mode": settings.app_mode, "refreshMinutes": settings.refresh_minutes, "lastScan": None if not scan else {"status": scan.status, "message": scan.message, "finishedAt": scan.finished_at}}
+    return {"mode": settings.app_mode, "refreshMinutes": settings.refresh_minutes, "lastScan": None if not scan else {"status": scan.status, "message": scan.message, "finishedAt": scan.finished_at, "upstream": json.loads(scan.details or "{}")}}
 
 
 @app.get("/health/live")
@@ -111,7 +111,7 @@ def health_ready():
 def scan_history(limit: int = 20):
     with SessionLocal() as db:
         scans = db.query(Scan).order_by(Scan.id.desc()).limit(min(max(limit, 1), 100)).all()
-    return [{"id": scan.id, "startedAt": scan.started_at, "finishedAt": scan.finished_at, "durationSeconds": scan_duration_seconds(scan), "status": scan.status, "message": scan.message} for scan in scans]
+    return [{"id": scan.id, "startedAt": scan.started_at, "finishedAt": scan.finished_at, "durationSeconds": scan_duration_seconds(scan), "status": scan.status, "message": scan.message, "upstream": json.loads(scan.details or "{}")} for scan in scans]
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
