@@ -1,6 +1,6 @@
 import json
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from sqlalchemy import text
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -15,6 +15,7 @@ from .version import __version__
 from .operations import prometheus_metrics, scan_duration_seconds
 from .provider_metrics import provider_metrics
 from .snapshots import diff_graphs
+from .auth import AuthMiddleware, login, login_page, logout_response
 
 scheduler = AsyncIOScheduler()
 
@@ -29,6 +30,23 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Artefact Graph", version=__version__, lifespan=lifespan)
+app.add_middleware(AuthMiddleware)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(): return login_page()
+
+
+@app.post("/login")
+async def login_submit(request: Request): return await login(request)
+
+
+@app.get("/api/session")
+def session(request: Request): return {"user": request.state.session["user"], "csrf": request.state.session["csrf"]}
+
+
+@app.post("/api/logout")
+def logout(): return logout_response()
 
 
 @app.get("/", response_class=HTMLResponse)

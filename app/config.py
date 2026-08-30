@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     registry_username: str = ""
     registry_token: str = ""
     verify_tls: bool = True
+    web_auth_enabled: bool = True
+    web_username: str = "root"
+    web_password: str = ""
+    web_session_hours: int = 12
+    web_cookie_secure: bool = False
+    web_login_attempts: int = 5
+    web_login_window_seconds: int = 300
 
 
 settings = Settings()
