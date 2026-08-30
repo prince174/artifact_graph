@@ -17,6 +17,7 @@ from .incremental import BoundedCache
 from .snapshots import canonical_graph
 from .persistent_cache import PersistentCache
 from .diagnostics import upstream_failure, upstream_message
+from .mapping_quality import annotate_mapping_quality
 
 
 refresh_lock = asyncio.Lock()
@@ -86,6 +87,7 @@ async def refresh():
             else:
                 nodes, edges = await collect_live()
             annotate_visual_state(nodes, edges)
+            annotate_mapping_quality(nodes, edges)
             _save(nodes, edges)
             _save_snapshot(scan.id, nodes, edges)
             stale_count = sum(bool(node.get("stale")) for node in nodes)
@@ -137,28 +139,42 @@ async def collect_live():
                 edges.append({"source": pid, "target": rid, "relation": "contains"})
             repo_records[rid] = repo
             for clone_url in repo.clone_urls:
-                repo_by_url[normalize_url(clone_url)] = rid
+                if normalized := normalize_url(clone_url):
+                    repo_by_url.setdefault(normalized, set()).add(rid)
         for summary in await tc.build_types():
             try:
                 detail = await tc.build_type(summary["id"])
-            except httpx.HTTPError:
+            except httpx.HTTPError as exc:
+                if summary.get("projectId") not in {"_Root", "Root"}:
+                    bid, pid = f"build-type:{summary['id']}", f"tc-project:{summary['projectId']}"
+                    nodes += [{"id": pid, "kind": "tc_project", "label": summary["projectId"], "active": True}, {"id": bid, "kind": "build_configuration", "label": summary.get("name", summary["id"]), "url": summary.get("webUrl"), "active": True, "mappingUnavailable": type(exc).__name__}]
+                    edges.append({"source": pid, "target": bid, "relation": "contains"})
                 continue
             if detail.get("projectId") in {"_Root", "Root"}:
                 continue
             bid, pid = f"build-type:{detail['id']}", f"tc-project:{detail['projectId']}"
-            nodes += [{"id": pid, "kind": "tc_project", "label": detail["projectId"], "active": True}, {"id": bid, "kind": "build_configuration", "label": detail["name"], "url": detail.get("webUrl"), "active": not detail.get("paused", False)}]
+            config_node = {"id": bid, "kind": "build_configuration", "label": detail["name"], "url": detail.get("webUrl"), "active": not detail.get("paused", False), "mappedRepositoryIds": [], "mappingObservations": []}
+            nodes += [{"id": pid, "kind": "tc_project", "label": detail["projectId"], "active": True}, config_node]
             edges.append({"source": pid, "target": bid, "relation": "contains"})
             roots = detail.get("vcs-root-entries", {}).get("vcs-root-entry", [])
+            parameters = teamcity_properties(detail, "parameters")
             linked_repositories = []
             for entry in roots:
                 props = {p["name"]: p.get("value", "") for p in entry.get("vcs-root", {}).get("properties", {}).get("property", [])}
-                url = props.get("url", "")
-                if repo_id := repo_by_url.get(normalize_url(url)):
+                url = resolve_teamcity_parameters(props.get("url", ""), parameters)
+                normalized = normalize_url(url)
+                candidates = repo_by_url.get(normalized, set())
+                reason = "unresolved_vcs_parameter" if "%" in url else "vcs_url_not_found" if not candidates else "ambiguous_vcs_url" if len(candidates) > 1 else "exact_vcs_url"
+                config_node["mappingObservations"].append({"vcsUrl": normalized, "candidateCount": len(candidates), "reason": reason})
+                if len(candidates) == 1:
+                    repo_id = next(iter(candidates))
                     edges.append({"source": repo_id, "target": pid, "relation": "maps_to", "confidence": "exact_vcs_url"})
                     linked_repositories.append(repo_records[repo_id])
+                    config_node["mappedRepositoryIds"].append(repo_id)
+            config_node["mappedRepositoryIds"] = sorted(set(config_node["mappedRepositoryIds"]))
+            config_node["mappingObservations"] = sorted(config_node["mappingObservations"], key=lambda item: (item["vcsUrl"], item["candidateCount"], item["reason"]))
             scripts = []
             build_files = []
-            parameters = teamcity_properties(detail, "parameters")
             for step in detail.get("steps", {}).get("step", []):
                 props = {p["name"]: p.get("value", "") for p in step.get("properties", {}).get("property", [])}
                 scripts.extend(resolve_teamcity_parameters(v, parameters) for k, v in props.items() if "script" in k.lower())

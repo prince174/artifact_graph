@@ -3,6 +3,14 @@ from datetime import datetime, timedelta, timezone
 from app.filters import filter_graph, parse_teamcity_date
 
 
+def test_mapping_issue_filter_keeps_unmapped_entities_and_container():
+    nodes = [{"id": "p", "kind": "bb_project", "mappingStatus": "unmapped"}, {"id": "r", "kind": "repository", "mappingStatus": "unmapped"}, {"id": "ok", "kind": "repository", "mappingStatus": "mapped"}]
+    edges = [{"source": "p", "target": "r", "relation": "contains"}]
+    filtered, filtered_edges = filter_graph(nodes, edges, mapping_issues=True)
+    assert {node["id"] for node in filtered} == {"p", "r"}
+    assert filtered_edges == edges
+
+
 def graph_fixture():
     old = (datetime.now(timezone.utc) - timedelta(days=40)).strftime("%Y%m%dT%H%M%S%z")
     nodes = [

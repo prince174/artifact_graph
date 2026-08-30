@@ -30,7 +30,7 @@ def dataset():
             image_id = None
             sbom_id = None
             paused = i == 10 and stage.key == "Deploy"
-            nodes.append({"id": build_id, "kind": "build_configuration", "label": stage.name, "url": f"http://localhost:8111/buildConfiguration/{stage_build_id(i, stage)}", "active": not paused})
+            nodes.append({"id": build_id, "kind": "build_configuration", "label": stage.name, "url": f"http://localhost:8111/buildConfiguration/{stage_build_id(i, stage)}", "active": not paused, "mappedRepositoryIds": [repo_id], "mappingObservations": [{"vcsUrl": f"demo/{slug}", "candidateCount": 1, "reason": "exact_vcs_url"}]})
             edges.append({"source": tc_project_id, "target": build_id, "relation": "contains"})
             if stage.key == "Build" and command:
                 engine, image = command.split()[0], command.split()[2]

@@ -102,3 +102,12 @@ def test_degraded_status_shows_safe_upstream_diagnostics():
     assert "u.httpStatus" in PAGE
     assert "u.endpoint" in PAGE
     assert "retries" in PAGE
+
+
+def test_mapping_coverage_panel_and_problem_filter_are_present():
+    assert 'id="mappingIssues"' in PAGE
+    assert "mapping_issues:'mappingIssues'" in PAGE
+    assert "function showCoverage" in PAGE
+    assert "fetch('/api/coverage')" in PAGE
+    assert "stopPropagation" in PAGE
+    assert "Связь BB ↔ TC" in PAGE

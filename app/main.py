@@ -16,6 +16,7 @@ from .operations import prometheus_metrics, scan_duration_seconds
 from .provider_metrics import provider_metrics
 from .snapshots import diff_graphs
 from .auth import AuthMiddleware, login, login_page, logout_response
+from .mapping_quality import coverage_report
 
 scheduler = AsyncIOScheduler()
 
@@ -58,18 +59,26 @@ def version(): return {"version": __version__}
 
 
 @app.get("/api/graph")
-def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, since_days: int = 0):
+def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0):
     with SessionLocal() as db:
         nodes = db.query(Node).all(); edges = db.query(Edge).all()
     result_nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in nodes]
     result_edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in edges]
-    result_nodes, result_edges = select_visible(result_nodes, result_edges, q)
+    if not mapping_issues:
+        result_nodes, result_edges = select_visible(result_nodes, result_edges, q)
     result_nodes, result_edges = filter_graph(
         result_nodes, result_edges, bb_project=bb_project, tc_project=tc_project,
         status=status_filter, engine=engine_filter, has_image=has_image, has_sbom=has_sbom, target_only=target_only,
-        since_days=max(0, since_days),
+        mapping_issues=mapping_issues, since_days=max(0, since_days),
     )
     return {"nodes": result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges)}
+
+
+@app.get("/api/coverage")
+def coverage():
+    with SessionLocal() as db:
+        nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in db.query(Node).all()]
+    return coverage_report(nodes)
 
 
 @app.post("/api/refresh", status_code=202)

@@ -1,7 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
 
-def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engine="", has_image=None, has_sbom=None, target_only=False, since_days=0):
+def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engine="", has_image=None, has_sbom=None, target_only=False, mapping_issues=False, since_days=0):
+    if mapping_issues:
+        selected = {node["id"] for node in nodes if node.get("mappingStatus") != "mapped" and node["kind"] in {"repository", "tc_project", "build_configuration"}}
+        selected.update(edge["source"] for edge in edges if edge["target"] in selected and edge["relation"] == "contains")
+        return [node for node in nodes if node["id"] in selected], [edge for edge in edges if edge["source"] in selected and edge["target"] in selected]
     if not any((bb_project, tc_project, status, engine, has_image is not None, has_sbom is not None, target_only, since_days)):
         return nodes, edges
     by_id = {node["id"]: node for node in nodes}
