@@ -11,8 +11,20 @@ def validate_fixture_graph(graph: dict) -> dict[str, int]:
         if counts[kind] != count:
             raise AssertionError(f"Expected {count} {kind} nodes, got {counts[kind]}")
     build_nodes = [node for node in graph["nodes"] if node["kind"] == "build"]
-    if any(node.get("status") != "SUCCESS" for node in build_nodes):
-        raise AssertionError("All fixture builds must be successful")
+    statuses = {node.get("status") for node in build_nodes}
+    states = {node.get("state") for node in build_nodes}
+    unexpected_statuses = statuses - {"SUCCESS", "FAILURE", "ERROR", "UNKNOWN"}
+    unexpected_states = states - {"finished", "running", "queued"}
+    if unexpected_statuses:
+        raise AssertionError(f"Unexpected fixture build statuses: {sorted(unexpected_statuses, key=str)}")
+    if unexpected_states:
+        raise AssertionError(f"Unexpected fixture build states: {sorted(unexpected_states, key=str)}")
+    if "SUCCESS" not in statuses:
+        raise AssertionError("Fixture must contain a successful build")
+    if not any(node.get("hasImagePush") for node in build_nodes):
+        raise AssertionError("Fixture must contain a confirmed image push")
+    if not any(node.get("hasSbom") for node in build_nodes):
+        raise AssertionError("Fixture must contain an SBOM artifact")
     if len(graph.get("positions", {})) != len(graph["nodes"]):
         raise AssertionError("Every visible node must have a preset position")
     return dict(counts)

@@ -10,3 +10,4 @@ build/
 atlassian-extras-decoder-*.jar
 backups/
 *.dump
+test-results/

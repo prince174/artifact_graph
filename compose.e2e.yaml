@@ -1,0 +1,67 @@
+name: artefact-graph-e2e
+
+services:
+  postgres-e2e:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: graph_e2e
+      POSTGRES_USER: graph_e2e
+      POSTGRES_PASSWORD: graph-e2e-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graph_e2e -d graph_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  graph-e2e:
+    build:
+      context: .
+      args:
+        GIT_SHA: e2e
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8080"]
+    environment:
+      APP_MODE: demo
+      DATABASE_URL: postgresql+psycopg://graph_e2e:graph-e2e-password@postgres-e2e:5432/graph_e2e
+      REFRESH_MINUTES: "60"
+      REGISTRY_ENABLED: "false"
+      VERIFY_TLS: "true"
+      WEB_AUTH_ENABLED: "true"
+      WEB_USERNAME: e2e-root
+      WEB_PASSWORD: e2e-only-password-32-characters
+      WEB_COOKIE_SECURE: "false"
+      WEB_LOGIN_ATTEMPTS: "10"
+      WEBHOOK_ENABLED: "false"
+      MAPPING_RULES_PATH: ""
+    depends_on:
+      postgres-e2e:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/ready', timeout=3)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  browser-e2e:
+    build:
+      context: ./e2e
+    working_dir: /src
+    environment:
+      E2E_BASE_URL: http://graph-e2e:8080
+      E2E_WEB_USERNAME: e2e-root
+      E2E_WEB_PASSWORD: e2e-only-password-32-characters
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - .:/src:ro
+      - ./test-results:/test-results
+    command:
+      - pytest
+      - -c
+      - e2e/pytest.ini
+      - e2e
+      - --output=/test-results
+    depends_on:
+      graph-e2e:
+        condition: service_healthy

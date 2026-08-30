@@ -1,8 +1,9 @@
 # Artefact Graph
 
-Python-сервис строит интерактивный граф `Bitbucket repository → TeamCity build configuration → build/image/SBOM`.
+Python-сервис строит интерактивный граф `Bitbucket project/repository → TeamCity project/build configuration → build`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
 script steps, правило `**/sbom.json => artifacts` и последние три запуска каждой конфигурации.
+Push и SBOM отражаются цветом и деталями соответствующего build, без отдельных узлов на карте.
 
 Bitbucket подключается через общий контракт `RepositoryProvider`. Поддерживаются адаптеры
 `cloud` (основной) и `datacenter` (опциональный).
@@ -55,8 +56,8 @@ docker compose --profile datacenter up -d bitbucket-db bitbucket
 ```
 
 Сервис использует только `GET` к Bitbucket и TeamCity. Токены bootstrap-администратора приложению
-не передаются. Web UI пока не имеет пользовательской авторизации (единый доступ, как согласовано),
-поэтому публиковать порт 8080 в недоверенную сеть не следует.
+не передаются. Web UI защищён общей учётной записью и подписанной HttpOnly-cookie; порт 8080 всё
+равно следует публиковать только через HTTPS reverse proxy или во внутренней сети.
 
 ## Развёртывание на Linux
 
@@ -79,6 +80,14 @@ the running ten-repository fixture, including node counts and repository search:
 
 ```bash
 python scripts/validate_live.py --url http://localhost:18081 --repository java-maven-api
+```
+
+При включённой web-авторизации передайте `WEB_USERNAME` и `WEB_PASSWORD` через environment.
+Изолированный браузерный E2E-прогон использует Chromium и чистую временную PostgreSQL:
+
+```bash
+docker compose -f compose.e2e.yaml up --build --abort-on-container-exit --exit-code-from browser-e2e
+docker compose -f compose.e2e.yaml down --volumes --remove-orphans
 ```
 
 ## Registry and Nexus
@@ -132,7 +141,7 @@ scan. Enable them with `WEBHOOK_ENABLED=true`, an HTTPS `WEBHOOK_URL`, and a ran
 `scan.recovered`, and `graph.outputs.changed`; deliveries are retried asynchronously.
 
 - `GET /health/live` checks that the process is alive.
-- `GET /health/ready` checks PostgreSQL and requires at least one successful scan.
+- `GET /health/ready` checks PostgreSQL and requires at least one usable `success` or `degraded` scan.
 - `GET /metrics` exposes Prometheus scan, graph-size, duration, and age metrics.
 - `GET /api/scans?limit=20` returns recent scan history. `SCAN_HISTORY_LIMIT` controls retention.
 
@@ -163,3 +172,6 @@ docker compose exec -T graph alembic current
 The graph container runs `alembic upgrade head` before starting the API. Release
 images expose `GET /api/version`, include the Git commit as an OCI image label,
 and are built by `.github/workflows/ci.yml` for version tags.
+
+Production preflight, deploy, monitoring, incident, backup/restore, rollback and
+secret-rotation procedures are documented in [docs/production-runbook.md](docs/production-runbook.md).

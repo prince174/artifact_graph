@@ -56,12 +56,17 @@ async def test_middleware_requires_login_and_csrf(monkeypatch):
     def data():
         return {"ok": True}
 
+    @app.get("/static/app.js")
+    def static_asset():
+        return {"asset": True}
+
     @app.post("/api/change")
     def change():
         return {"changed": True}
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get("/api/data")).status_code == 401
+        assert (await client.get("/static/app.js")).status_code == 200
         response = await client.post("/login", content="username=root&password=secret-password", headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)
         assert response.status_code == 303
         assert "HttpOnly" in response.headers["set-cookie"] and "SameSite=strict" in response.headers["set-cookie"]

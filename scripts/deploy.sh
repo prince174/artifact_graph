@@ -19,7 +19,8 @@ if ! "${compose[@]}" up -d --build --force-recreate --remove-orphans; then
   failed=1
 else
   published_port="$("${compose[@]}" port graph 8080 | tail -1 | awk -F: '{print $NF}')"
-  GRAPH_URL="http://localhost:${published_port:-8080}" "$deploy_dir/scripts/smoke-linux.sh" || failed=1
+  GRAPH_URL="http://localhost:${published_port:-8080}" SMOKE_ENV_FILE="$deploy_dir/.env" \
+    "$deploy_dir/scripts/smoke-linux.sh" || failed=1
 fi
 if [[ "${failed:-0}" == 1 ]]; then
   echo "Deployment failed; rolling back to $previous_ref" >&2

@@ -93,7 +93,7 @@ async def login(request: Request):
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if not settings.web_auth_enabled or request.url.path in PUBLIC_PATHS:
+        if not settings.web_auth_enabled or request.url.path in PUBLIC_PATHS or request.url.path.startswith("/static/"):
             return await call_next(request)
         session = read_session(request.cookies.get(COOKIE))
         if not session:

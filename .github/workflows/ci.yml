@@ -7,6 +7,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      WEB_PASSWORD: ci-only-password-not-for-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,9 +17,29 @@ jobs:
       - run: pytest -q
       - run: docker compose config --quiet
       - run: docker build --build-arg GIT_SHA=${{ github.sha }} -t artifact-graph:${{ github.sha }} .
+  browser-e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f compose.e2e.yaml config --quiet
+      - run: mkdir -p test-results
+      - run: docker compose -f compose.e2e.yaml up --build --abort-on-container-exit --exit-code-from browser-e2e
+      - if: failure()
+        run: |
+          docker compose -f compose.e2e.yaml logs --no-color > test-results/compose.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-results
+          path: test-results
+          if-no-files-found: ignore
+      - if: always()
+        run: docker compose -f compose.e2e.yaml down --volumes --remove-orphans
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs: [test, browser-e2e]
     runs-on: ubuntu-latest
     permissions: {contents: read, packages: write, id-token: write, attestations: write}
     steps:

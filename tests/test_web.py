@@ -1,6 +1,11 @@
 from app.web import PAGE
 
 
+def test_cytoscape_is_loaded_from_the_local_static_route():
+    assert '<script src="/static/cytoscape.min.js"></script>' in PAGE
+    assert "unpkg.com" not in PAGE
+
+
 def test_build_detail_ui_has_status_and_clickable_artifact_support():
     assert 'node[kind = "build"][status = "SUCCESS"]' in PAGE
     assert 'node[kind = "build"][status = "FAILURE"]' in PAGE

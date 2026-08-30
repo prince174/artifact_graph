@@ -3,4 +3,7 @@
 __pycache__
 .pytest_cache
 tests
-
+e2e
+docs
+test-results
+compose.e2e.yaml

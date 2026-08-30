@@ -13,6 +13,6 @@ def test_version_and_operational_assets_are_present():
     for path in (
         "alembic.ini", "migrations/env.py", "migrations/versions/20260725_01_baseline.py",
         "scripts/backup.sh", "scripts/restore.sh", "scripts/verify-backup.sh", "scripts/smoke-linux.sh",
-        ".github/workflows/ci.yml",
+        ".github/workflows/ci.yml", "compose.e2e.yaml", "docs/production-runbook.md",
     ):
         assert (ROOT / path).is_file(), path

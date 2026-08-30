@@ -1,7 +1,9 @@
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
@@ -34,6 +36,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Artefact Graph", version=__version__, lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
+app.mount("/static", StaticFiles(directory=Path(__file__).with_name("static"), check_dir=False), name="static")
 
 
 @app.get("/login", response_class=HTMLResponse)
