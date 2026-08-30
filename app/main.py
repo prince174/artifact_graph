@@ -1,6 +1,6 @@
 import json
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from sqlalchemy import text
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -9,7 +9,7 @@ from .layout import layered_positions
 from .filters import filter_graph
 from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal
 from .service import build_input_cache, refresh, source_cache
-from .subgraph import select_visible
+from .subgraph import paginate_mapping_issues, select_visible_page
 from .web import PAGE
 from .version import __version__
 from .operations import prometheus_metrics, scan_duration_seconds
@@ -59,26 +59,43 @@ def version(): return {"version": __version__}
 
 
 @app.get("/api/graph")
-def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0):
+def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100)):
     with SessionLocal() as db:
         nodes = db.query(Node).all(); edges = db.query(Edge).all()
     result_nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in nodes]
     result_edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in edges]
-    if not mapping_issues:
-        result_nodes, result_edges = select_visible(result_nodes, result_edges, q)
-    result_nodes, result_edges = filter_graph(
-        result_nodes, result_edges, bb_project=bb_project, tc_project=tc_project,
-        status=status_filter, engine=engine_filter, has_image=has_image, has_sbom=has_sbom, target_only=target_only,
-        mapping_issues=mapping_issues, since_days=max(0, since_days),
-    )
-    return {"nodes": result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges)}
+    try:
+        if mapping_issues:
+            result_nodes, result_edges = filter_graph(result_nodes, result_edges, mapping_issues=True)
+            result_nodes, result_edges, pagination = paginate_mapping_issues(result_nodes, result_edges, cursor=cursor, limit=limit)
+        else:
+            result_nodes, result_edges, pagination = select_visible_page(result_nodes, result_edges, q, cursor=cursor, limit=limit)
+            result_nodes, result_edges = filter_graph(
+                result_nodes, result_edges, bb_project=bb_project, tc_project=tc_project,
+                status=status_filter, engine=engine_filter, has_image=has_image, has_sbom=has_sbom, target_only=target_only,
+                since_days=max(0, since_days),
+            )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"nodes": result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges), "pagination": pagination}
+
+
+@app.get("/api/options")
+def options():
+    with SessionLocal() as db:
+        rows = db.query(Node).filter(Node.kind.in_(("bb_project", "tc_project"))).order_by(Node.kind, Node.label, Node.id).all()
+    return {"bbProjects": [{"id": row.id, "label": row.label} for row in rows if row.kind == "bb_project"], "tcProjects": [{"id": row.id, "label": row.label} for row in rows if row.kind == "tc_project"]}
 
 
 @app.get("/api/coverage")
-def coverage():
+def coverage(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=100)):
     with SessionLocal() as db:
         nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in db.query(Node).all()]
-    return coverage_report(nodes)
+    report = coverage_report(nodes)
+    issues = report["issues"]
+    report["issues"] = issues[offset:offset + limit]
+    report["issuePagination"] = {"offset": offset, "limit": limit, "total": len(issues), "hasMore": offset + limit < len(issues)}
+    return report
 
 
 @app.post("/api/refresh", status_code=202)

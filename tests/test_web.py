@@ -111,3 +111,10 @@ def test_mapping_coverage_panel_and_problem_filter_are_present():
     assert "fetch('/api/coverage')" in PAGE
     assert "stopPropagation" in PAGE
     assert "Связь BB ↔ TC" in PAGE
+
+
+def test_server_pagination_controls_and_full_project_options_are_used():
+    assert 'id="pagePrev"' in PAGE and 'id="pageNext"' in PAGE
+    assert "currentCursor" in PAGE and "nextCursor" in PAGE
+    assert "fetch('/api/options')" in PAGE
+    assert "function nextPage" in PAGE and "function previousPage" in PAGE
