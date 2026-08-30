@@ -8,6 +8,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
+      DATABASE_URL: sqlite://
       WEB_PASSWORD: ci-only-password-not-for-production
     steps:
       - uses: actions/checkout@v4

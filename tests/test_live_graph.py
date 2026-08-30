@@ -1,8 +1,23 @@
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.collectors import Repository
 from app.demo import dataset
 from app import service
+from app.models import Base
+
+
+@pytest.fixture(autouse=True)
+def isolated_service_database(monkeypatch):
+    """Keep collector tests independent from .env and any developer database."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(service, "SessionLocal", sessionmaker(engine, expire_on_commit=False))
+    service.source_cache.clear()
+    service.build_input_cache.clear()
+    yield
+    engine.dispose()
 
 
 class FakeBitbucket:
