@@ -106,6 +106,24 @@ and a long random `WEB_PASSWORD` only in `.env`; never commit the real password.
 State-changing requests also require the session CSRF token. Health endpoints and
 Prometheus metrics remain available for container orchestration and monitoring.
 
+## Manual mapping rules
+
+Non-standard VCS mirrors can be mapped in `config/mapping-rules.yaml`. Rules target
+a stable TeamCity build type ID and repository IDs shown in technical details:
+
+```yaml
+version: 1
+mappings:
+  - id: payments-mirror
+    teamcity_build_type: Payments_Build
+    mode: replace
+    repositories: [repo:artifact_graph/payments]
+    reason: TeamCity uses an internal mirror URL
+```
+
+`add` combines manual and automatic matches; `replace` replaces automatic matches.
+The file is validated with safe YAML loading on every refresh.
+
 ## Operations
 
 - `GET /health/live` checks that the process is alive.

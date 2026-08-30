@@ -41,6 +41,9 @@ services:
       WEB_COOKIE_SECURE: ${WEB_COOKIE_SECURE:-false}
       WEB_LOGIN_ATTEMPTS: ${WEB_LOGIN_ATTEMPTS:-5}
       WEB_LOGIN_WINDOW_SECONDS: ${WEB_LOGIN_WINDOW_SECONDS:-300}
+      MAPPING_RULES_PATH: ${MAPPING_RULES_PATH:-/app/config/mapping-rules.yaml}
+    volumes:
+      - ./config/mapping-rules.yaml:/app/config/mapping-rules.yaml:ro
     ports:
       - "${GRAPH_PORT:-8080}:8080"
     depends_on:

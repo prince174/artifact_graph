@@ -18,6 +18,7 @@ from .snapshots import canonical_graph
 from .persistent_cache import PersistentCache
 from .diagnostics import upstream_failure, upstream_message
 from .mapping_quality import annotate_mapping_quality
+from .mapping_rules import load_mapping_rules, resolve_mapping
 
 
 refresh_lock = asyncio.Lock()
@@ -124,6 +125,7 @@ def _save_snapshot(scan_id: int, nodes: list[dict], edges: list[dict]) -> None:
 
 async def collect_live():
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
+    mapping_rules = load_mapping_rules(settings.mapping_rules_path)
     registry = RegistryCollector() if settings.registry_enabled else None
     manifest_cache = {}
     previous_nodes, _ = _load_graph()
@@ -168,9 +170,18 @@ async def collect_live():
                 config_node["mappingObservations"].append({"vcsUrl": normalized, "candidateCount": len(candidates), "reason": reason})
                 if len(candidates) == 1:
                     repo_id = next(iter(candidates))
-                    edges.append({"source": repo_id, "target": pid, "relation": "maps_to", "confidence": "exact_vcs_url"})
                     linked_repositories.append(repo_records[repo_id])
                     config_node["mappedRepositoryIds"].append(repo_id)
+            resolved_ids, applied_rule, missing_manual = resolve_mapping(detail["id"], config_node["mappedRepositoryIds"], set(repo_records), mapping_rules)
+            config_node["mappedRepositoryIds"] = resolved_ids
+            if applied_rule:
+                config_node["mappingRule"] = applied_rule
+            if missing_manual:
+                config_node["mappingObservations"].extend({"repositoryId": repo_id, "candidateCount": 0, "reason": "manual_repository_not_found", "vcsUrl": ""} for repo_id in missing_manual)
+            linked_repositories = [repo_records[repo_id] for repo_id in resolved_ids]
+            for repo_id in resolved_ids:
+                confidence = "manual" if applied_rule and repo_id in mapping_rules[detail["id"]].repositories else "exact_vcs_url"
+                edges.append({"source": repo_id, "target": pid, "relation": "maps_to", "confidence": confidence, "reason": applied_rule["reason"] if confidence == "manual" else "normalized_vcs_url"})
             config_node["mappedRepositoryIds"] = sorted(set(config_node["mappedRepositoryIds"]))
             config_node["mappingObservations"] = sorted(config_node["mappingObservations"], key=lambda item: (item["vcsUrl"], item["candidateCount"], item["reason"]))
             scripts = []

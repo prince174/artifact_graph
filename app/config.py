@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     web_cookie_secure: bool = False
     web_login_attempts: int = 5
     web_login_window_seconds: int = 300
+    mapping_rules_path: str = ""
 
 
 settings = Settings()

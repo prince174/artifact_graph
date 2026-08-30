@@ -57,6 +57,14 @@ class FakeTeamCity:
         pass
 
 
+class FakeTeamCityWithMirror(FakeTeamCity):
+    async def build_type(self, build_type_id):
+        detail = await super().build_type(build_type_id)
+        if build_type_id == "Demo_01":
+            detail["vcs-root-entries"]["vcs-root-entry"][0]["vcs-root"]["properties"]["property"][0]["value"] = "ssh://mirror.internal/api.git"
+        return detail
+
+
 @pytest.mark.asyncio
 async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypatch):
     monkeypatch.setattr(service, "repository_provider", FakeBitbucket)
@@ -75,6 +83,29 @@ async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypa
     assert not any(edge["relation"] in {"pushes", "publishes", "pushed_image", "produced_sbom", "described_by"} for edge in edges)
     assert not any(relation in {"snapshot_depends_on", "uses_artifacts_from"} for _, _, relation in relations)
     assert by_id["build:42"]["pushedImages"][0]["evidence"] == "teamcity_build_log"
+
+
+@pytest.mark.asyncio
+async def test_manual_rule_maps_mirrored_config_and_drives_source_analysis(monkeypatch, tmp_path):
+    rules = tmp_path / "rules.yaml"
+    rules.write_text("""version: 1
+mappings:
+  - id: mirrored-api
+    teamcity_build_type: Demo_01
+    mode: replace
+    repositories: [repo:workspace/api]
+    reason: internal mirror
+""", encoding="utf-8")
+    monkeypatch.setattr(service.settings, "mapping_rules_path", str(rules))
+    monkeypatch.setattr(service, "repository_provider", FakeBitbucket)
+    monkeypatch.setattr(service, "TeamCityCollector", FakeTeamCityWithMirror)
+    service.source_cache.clear()
+    nodes, edges = await service.collect_live()
+    by_id = {node["id"]: node for node in nodes}
+    assert by_id["build-type:Demo_01"]["mappedRepositoryIds"] == ["repo:workspace/api"]
+    assert by_id["build-type:Demo_01"]["mappingRule"]["id"] == "mirrored-api"
+    assert by_id["build:42"]["hasImagePush"] is True
+    assert any(edge["relation"] == "maps_to" and edge.get("confidence") == "manual" for edge in edges)
 
 
 def test_demo_dataset_has_full_ten_repo_five_build_fixture():

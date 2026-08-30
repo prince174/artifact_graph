@@ -30,6 +30,17 @@ def annotate_mapping_quality(nodes: list[dict], edges: list[dict]) -> None:
             mapped = bool(node.get("mappedRepositoryIds"))
             observations = node.get("mappingObservations", [])
             failures = [item for item in observations if item.get("reason") != "exact_vcs_url"]
+            if rule := node.get("mappingRule"):
+                missing_manual = any(item.get("reason") == "manual_repository_not_found" for item in observations)
+                if rule.get("mode") == "replace":
+                    if mapped and not missing_manual:
+                        node["mappingStatus"], node["mappingReason"], node["mappingConfidence"] = "mapped", "manual_rule", "manual"
+                    elif mapped:
+                        node["mappingStatus"], node["mappingReason"], node["mappingConfidence"] = "partial", "manual_repository_not_found", "manual"
+                    else:
+                        node["mappingStatus"], node["mappingReason"] = "unmapped", "manual_repository_not_found" if missing_manual else "manual_exclusion"
+                        node.pop("mappingConfidence", None)
+                    continue
             if mapped and failures:
                 node["mappingStatus"], node["mappingReason"], node["mappingConfidence"] = "partial", "partial_vcs_mapping", "mixed"
                 continue
