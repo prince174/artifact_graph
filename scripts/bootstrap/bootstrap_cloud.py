@@ -24,6 +24,7 @@ TOKEN = os.environ["BB_BOOTSTRAP_TOKEN"]
 TC_URL = os.getenv("TEAMCITY_BOOTSTRAP_URL", "http://localhost:8111").rstrip("/")
 TC_TOKEN = os.getenv("TC_ADMIN_TOKEN", "")
 TC_READER_USERNAME = os.getenv("TEAMCITY_READER_USERNAME", "")
+CHECKOUT_TOKEN = os.getenv("BB_CHECKOUT_TOKEN", "")
 
 
 def cloud_headers():
@@ -94,6 +95,8 @@ def bootstrap_teamcity():
     if not TC_TOKEN:
         print("TC_ADMIN_TOKEN is empty; TeamCity bootstrap skipped")
         return
+    if not CHECKOUT_TOKEN or CHECKOUT_TOKEN == TOKEN:
+        raise ValueError("BB_CHECKOUT_TOKEN must be a separate read-only Git token")
     headers = {"Authorization": f"Bearer {TC_TOKEN}", "Accept": "application/json", "Content-Type": "application/json"}
     with httpx.Client(base_url=TC_URL, headers=headers, timeout=60) as client:
         response = client.post("/app/rest/projects", json={"id": "Demo", "name": "Artefact Graph Demo"})
@@ -127,13 +130,16 @@ def bootstrap_teamcity():
                 {"name": "branch", "value": "refs/heads/main"},
                 {"name": "authMethod", "value": "PASSWORD"},
                 {"name": "username", "value": "x-bitbucket-api-token-auth"},
-                {"name": "secure:password", "value": TOKEN},
+                {"name": "secure:password", "value": CHECKOUT_TOKEN},
             ]
             vcs = {"id": vcs_id, "name": slug, "vcsName": "jetbrains.git", "project": {"id": product_id}, "properties": {"property": props}}
             exists = client.get(f"/app/rest/vcs-roots/id:{vcs_id}")
             if exists.status_code == 404:
                 response = client.post("/app/rest/vcs-roots", json=vcs)
                 if response.status_code not in (200, 201): raise RuntimeError(response.text)
+            else:
+                exists.raise_for_status()
+                tc_put(client, f"/app/rest/vcs-roots/id:{vcs_id}/properties", {"property": props})
             previous_id = ""
             for stage in PIPELINE_STAGES:
                 build_id = stage_build_id(index, stage)

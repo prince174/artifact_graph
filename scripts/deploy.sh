@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 repo_url="${1:?Usage: deploy.sh <git-url> [directory]}"
 deploy_dir="${2:-/opt/artefact-graph}"
 if [[ ! -d "$deploy_dir/.git" ]]; then
@@ -13,6 +14,7 @@ current_ref="$(git -C "$deploy_dir" rev-parse HEAD)"
 if [[ ! -f "$deploy_dir/.env" ]]; then
   cp "$deploy_dir/.env.example" "$deploy_dir/.env"
 fi
+chmod 600 "$deploy_dir/.env"
 export GIT_SHA="$current_ref"
 compose=(docker compose -f "$deploy_dir/compose.yaml" --project-directory "$deploy_dir")
 if ! "${compose[@]}" up -d --build --force-recreate --remove-orphans; then

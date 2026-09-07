@@ -11,6 +11,7 @@
 export BITBUCKET_WORKSPACE=my-workspace
 export BB_BOOTSTRAP_EMAIL=admin@example.com
 export BB_BOOTSTRAP_TOKEN=...
+export BB_CHECKOUT_TOKEN=... # separate read-only Git token, never the bootstrap token
 export TC_ADMIN_TOKEN=...
 export TEAMCITY_BOOTSTRAP_URL=http://localhost:8111
 export TEAMCITY_READER_USERNAME=artefact-graph-reader
