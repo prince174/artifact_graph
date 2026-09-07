@@ -1,6 +1,11 @@
 name: artefact-graph
 services:
   graph:
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     build:
       context: .
       args:
@@ -52,7 +57,7 @@ services:
     volumes:
       - ./config/mapping-rules.yaml:/app/config/mapping-rules.yaml:ro
     ports:
-      - "${GRAPH_PORT:-8080}:8080"
+      - "${GRAPH_BIND:-127.0.0.1}:${GRAPH_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,8 +99,8 @@ services:
     image: atlassian/bitbucket-server:7.10.0
     restart: unless-stopped
     ports:
-      - "7990:7990"
-      - "7999:7999"
+      - "127.0.0.1:7990:7990"
+      - "127.0.0.1:7999:7999"
     environment:
       JDBC_DRIVER: org.postgresql.Driver
       JDBC_URL: jdbc:postgresql://bitbucket-db:5432/bitbucket
@@ -113,12 +118,13 @@ services:
     image: jetbrains/teamcity-server:2025.03.3
     restart: unless-stopped
     ports:
-      - "8111:8111"
+      - "127.0.0.1:${TEAMCITY_PORT:-8111}:8111"
     volumes:
       - teamcity-data:/data/teamcity_server/datadir
       - teamcity-logs:/opt/teamcity/logs
 
   teamcity-agent:
+    profiles: [build-lab]
     image: jetbrains/teamcity-agent:2025.03.3-linux-sudo
     privileged: true
     restart: unless-stopped
@@ -135,7 +141,7 @@ services:
     image: registry:2.8.3
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - registry-data:/var/lib/registry
 

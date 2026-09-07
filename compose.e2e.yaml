@@ -16,6 +16,10 @@ services:
       retries: 30
 
   graph-e2e:
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     build:
       context: .
       args:

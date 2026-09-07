@@ -42,7 +42,7 @@ WEB_PASSWORD=use-a-long-random-password
 ## Полный стенд с TeamCity
 
 ```bash
-docker compose up -d --build postgres graph teamcity teamcity-agent registry
+docker compose --profile build-lab up -d --build postgres graph teamcity teamcity-agent registry
 ```
 
 1. Завершите бесплатную настройку TeamCity Professional на `http://localhost:8111`.
