@@ -19,9 +19,22 @@ Use separate tokens for administration, Git checkout and collection.
 rotate/revoke the previous bootstrap token only after verifying checkout.
 Scope restrictions must be verified in Bitbucket; string comparison cannot
 verify token permissions. Never put administrator tokens in runtime containers.
+In TeamCity, inspect inherited group roles too: a Project Viewer that belongs
+to All Users with global Project Developer is not read-only. Keep the operator's
+explicit System Administrator role and remove write grants from shared reader
+groups before using the collector token.
 
 Protect `.env` with owner-only permissions. The Linux deployment script sets
 mode 0600. On Windows, restrict its ACL to the operator account.
 
 Before deployment, run unit tests, browser E2E and dependency vulnerability
 scanning. A passing test suite alone does not prove security.
+
+## Remaining upstream advisory (2026-09-08)
+
+Docker Scout reports CVE-2026-85091 for Debian's zlib package. Debian currently
+lists no fixed package. The reported trigger involves non-blocking gzwrite and
+gzprintf; exploitability through this application has not been demonstrated.
+Do not treat this as a clean image scan or silently suppress it. Rebuild and
+rescan after Debian publishes an update:
+https://security-tracker.debian.org/tracker/CVE-2026-85091

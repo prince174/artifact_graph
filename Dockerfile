@@ -7,8 +7,10 @@ ARG GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=$GIT_SHA org.opencontainers.image.version=0.2.0
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir --upgrade pip==26.2.1 && pip install --no-cache-dir .
+RUN pip install --no-cache-dir --upgrade pip==26.2.1 && pip install --no-cache-dir . \
+    && python -m pip uninstall -y pip
 COPY app ./app
 RUN mkdir -p /app/app/static
 COPY --from=web-dependencies /web-dependencies/node_modules/cytoscape/dist/cytoscape.min.js /app/app/static/cytoscape.min.js
