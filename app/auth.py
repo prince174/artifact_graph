@@ -16,6 +16,7 @@ from .config import settings
 
 log = logging.getLogger("artifact_graph.auth")
 COOKIE = "artifact_graph_session"
+MAX_LOGIN_BYTES = 8192
 PUBLIC_PATHS = {"/login", "/health/live", "/health/ready", "/metrics"}
 LOGIN_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Artifact Graph — вход</title><style>body{margin:0;background:#0d1117;color:#e6edf3;font:15px system-ui;display:grid;place-items:center;height:100vh}form{width:320px;padding:28px;background:#161b22;border:1px solid #30363d;border-radius:10px}input,button{box-sizing:border-box;width:100%;padding:11px;margin-top:12px;border-radius:7px}input{background:#0d1117;color:white;border:1px solid #30363d}button{background:#238636;color:white;border:0;font-weight:700}.error{color:#e99a95}</style></head><body><form method="post" action="/login"><h2>Artifact Graph</h2><p>Войдите для просмотра карты.</p>{error}<input name="username" autocomplete="username" placeholder="Пользователь" required autofocus><input name="password" type="password" autocomplete="current-password" placeholder="Пароль" required><button type="submit">Войти</button></form></body></html>"""
 
@@ -76,9 +77,17 @@ async def login(request: Request):
     if not limiter.allow(client):
         log.warning("login rate limited client=%s", client)
         return HTMLResponse("Слишком много попыток. Повторите позже.", status_code=429)
-    form = parse_qs((await request.body()).decode(errors="replace"))
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_LOGIN_BYTES:
+            return JSONResponse({"detail": "Login request too large"}, status_code=413)
+        body.extend(chunk)
+    try:
+        form = parse_qs(body.decode(errors="replace"), max_num_fields=4)
+    except ValueError:
+        return JSONResponse({"detail": "Too many form fields"}, status_code=400)
     username, password = form.get("username", [""])[0], form.get("password", [""])[0]
-    valid = hmac.compare_digest(username, settings.web_username) and hmac.compare_digest(password, settings.web_password)
+    valid = hmac.compare_digest(username.encode(), settings.web_username.encode()) and hmac.compare_digest(password.encode(), settings.web_password.encode())
     if not valid:
         limiter.fail(client)
         log.warning("login failed client=%s user=%s", client, username[:80])

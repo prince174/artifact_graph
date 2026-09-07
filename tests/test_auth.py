@@ -70,6 +70,13 @@ async def test_middleware_requires_login_and_csrf(monkeypatch):
             assert (await client.get("/api/data", headers={"Host": host})).status_code == 401
             assert (await client.post("/api/change", headers={"Host": host})).status_code == 401
         assert (await client.get("/static/app.js")).status_code == 200
+        assert (await client.post("/login", content="x" * 8193)).status_code == 413
+        async def chunks():
+            yield b"x" * 4096
+            yield b"x" * 4097
+        assert (await client.post("/login", content=chunks())).status_code == 413
+        assert (await client.post("/login", content="a=1&b=2&c=3&d=4&e=5")).status_code == 400
+        assert (await client.post("/login", data={"username": "тест", "password": "тест"})).status_code == 401
         response = await client.post("/login", content="username=root&password=secret-password", headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)
         assert response.status_code == 303
         assert "HttpOnly" in response.headers["set-cookie"] and "SameSite=strict" in response.headers["set-cookie"]
