@@ -1,5 +1,10 @@
 .git
 .env
+.venv*
+*.egg-info
+build
+backups
+*.jar
 __pycache__
 .pytest_cache
 tests

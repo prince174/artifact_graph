@@ -66,6 +66,9 @@ async def test_middleware_requires_login_and_csrf(monkeypatch):
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get("/api/data")).status_code == 401
+        for host in ("test/health/live?x=", "test/static/x#", "test/login?"):
+            assert (await client.get("/api/data", headers={"Host": host})).status_code == 401
+            assert (await client.post("/api/change", headers={"Host": host})).status_code == 401
         assert (await client.get("/static/app.js")).status_code == 200
         response = await client.post("/login", content="username=root&password=secret-password", headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)
         assert response.status_code == 303

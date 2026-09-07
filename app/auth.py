@@ -93,11 +93,12 @@ async def login(request: Request):
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if not settings.web_auth_enabled or request.url.path in PUBLIC_PATHS or request.url.path.startswith("/static/"):
+        path = request.scope["path"]
+        if not settings.web_auth_enabled or path in PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
         session = read_session(request.cookies.get(COOKIE))
         if not session:
-            if request.url.path.startswith("/api/"):
+            if path.startswith("/api/"):
                 return JSONResponse({"detail": "Authentication required"}, status_code=401)
             return RedirectResponse("/login", status_code=303)
         request.state.session = session
