@@ -19,6 +19,13 @@ jobs:
       - run: pip-audit --local --progress-spinner off
       - run: pytest -q
       - run: docker compose config --quiet
+      - name: Validate isolated production stack (dummy credentials only)
+        env:
+          POSTGRES_PASSWORD: ci-database-password-only-0000000000000000
+          WEB_PASSWORD: ci-web-password-only-11111111111111111111111
+          BITBUCKET_TOKEN: ci-read-only-placeholder
+          TEAMCITY_TOKEN: ci-read-only-placeholder
+        run: docker compose --env-file .env.prod.example -f compose.prod.yaml config --quiet
       - run: docker build --build-arg GIT_SHA=${{ github.sha }} -t artifact-graph:${{ github.sha }} .
   browser-e2e:
     needs: test

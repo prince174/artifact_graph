@@ -1,4 +1,8 @@
 .env
+.env.*
+!.env.example
+!.env.prod.example
+config/certs/
 .venv*/
 __pycache__/
 .pytest_cache/
