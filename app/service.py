@@ -93,8 +93,12 @@ async def refresh():
             _save(nodes, edges)
             _save_snapshot(scan.id, nodes, edges)
             stale_count = sum(bool(node.get("stale")) for node in nodes)
-            status = "degraded" if stale_count else "success"
+            error_count = sum(bool(node.get("collectionError") or node.get("mappingUnavailable")) for node in nodes)
+            status = "degraded" if stale_count or error_count else "success"
             message = f"{len(nodes)} nodes, {len(edges)} edges" + (f"; {stale_count} stale" if stale_count else "")
+            if error_count:
+                message += f"; {error_count} incomplete entities"
+                scan_details = {"incompleteEntities": error_count}
         except Exception as exc:
             scan_details = upstream_failure(exc)
             if previous_nodes:
@@ -209,9 +213,10 @@ async def collect_live():
                     source_complete = True
                     try:
                         sources = await expand_scripts(bb, linked_repositories, scripts, build_files)
-                    except httpx.HTTPError:
+                    except httpx.HTTPError as exc:
                         sources = []
                         source_complete = False
+                        config_node["collectionError"] = f"Source analysis unavailable: {type(exc).__name__}"
                     if source_complete and cacheable:
                         source_cache.put(source_key, sources)
                         persistent.put(source_key, [{"path": item.path, "text": item.text} for item in sources])
@@ -289,7 +294,9 @@ def normalize_url(url: str):
         value = f"{user_host.split('@', 1)[1]}/{path}"
     elif "://" in value:
         parsed = urlsplit(value)
-        value = f"{parsed.hostname or ''}{parsed.path}"
+        default_port = {"http": 80, "https": 443, "ssh": 22}.get(parsed.scheme)
+        port = f":{parsed.port}" if parsed.port is not None and parsed.port != default_port else ""
+        value = f"{parsed.hostname or ''}{port}{parsed.path}"
     value = value.rstrip("/").removesuffix(".git")
     return value.replace("/scm/", "/")
 

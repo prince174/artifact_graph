@@ -59,3 +59,17 @@ async def test_failed_first_refresh_still_fails(sqlite_session, monkeypatch):
         await service.refresh()
     with sqlite_session() as db:
         assert db.query(Scan).one().status == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["collectionError", "mappingUnavailable"])
+async def test_first_partial_scan_is_degraded_not_success(sqlite_session, monkeypatch, failure):
+    async def partial():
+        return [{"id": "cfg", "kind": "build_configuration", "label": "Build", failure: "HTTPStatusError"}], []
+    monkeypatch.setattr(service.settings, "app_mode", "live")
+    monkeypatch.setattr(service, "collect_live", partial)
+    await service.refresh()
+    with sqlite_session() as db:
+        scan = db.query(Scan).one()
+        assert scan.status == "degraded"
+        assert json.loads(scan.details)["incompleteEntities"] == 1

@@ -70,6 +70,8 @@ def test_clone_url_normalization_matches_https_and_ssh():
     assert normalize_url("https://user@bitbucket.org/acme/api.git") == expected
     assert normalize_url("git@bitbucket.org:acme/api.git") == expected
     assert normalize_url("ssh://git@bitbucket.org/acme/api.git") == expected
+    assert normalize_url("https://bb:8443/scm/PRJ/api.git") != normalize_url("https://bb:9443/scm/PRJ/api.git")
+    assert normalize_url("https://bb:443/scm/PRJ/api.git") == normalize_url("https://bb/scm/prj/api.git")
 
 
 def test_reads_teamcity_settings_properties():
@@ -195,3 +197,55 @@ async def test_teamcity_merges_queue_with_recent_builds_without_duplicates():
     finally:
         await collector.close()
     assert [build["id"] for build in builds] == [3, 2, 1]
+
+
+@pytest.mark.asyncio
+async def test_teamcity_context_artifact_links_and_configurable_build_limit(monkeypatch):
+    requests = []
+    monkeypatch.setattr(settings, "teamcity_public_url", "https://public/teamcity")
+    monkeypatch.setattr(settings, "teamcity_build_limit", 5)
+    def handler(request):
+        requests.append(request)
+        path = request.url.path
+        assert "/tc/tc/" not in path
+        if path.endswith("/artifacts/children"):
+            return httpx.Response(200, json={"file": [{"name": "artifacts", "children": {"href": "/tc/app/rest/files"}}]})
+        if path.endswith("/files"):
+            return httpx.Response(200, json={"file": [{"name": "sbom.json", "content": {"href": "/tc/app/rest/content/sbom.json"}}]})
+        if path.endswith("/sbom.json"):
+            return httpx.Response(200, text='{"bomFormat":"CycloneDX"}')
+        if path.endswith("/buildQueue"):
+            return httpx.Response(200, json={"build": []})
+        return httpx.Response(200, json={"build": [{"id": i} for i in range(6)]})
+    collector = TeamCityCollector("https://internal/tc", "reader")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(base_url="https://internal/tc", transport=httpx.MockTransport(handler))
+    try:
+        artifacts = await collector.artifacts("1")
+        assert artifacts[0]["url"] == "https://public/teamcity/app/rest/content/sbom.json"
+        assert (await collector.artifact_content(artifacts[0]["contentHref"]))[0] == '{"bomFormat":"CycloneDX"}'
+        assert len(await collector.builds("Cfg")) == 5
+        assert "count:5" in requests[-2].url.params["locator"]
+    finally:
+        await collector.close()
+
+
+@pytest.mark.asyncio
+async def test_api_rejects_foreign_pagination_links_and_redirects():
+    sent = []
+    def handler(request):
+        sent.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "https://foreign/private"})
+    collector = ApiClient("https://trusted/context", "reader")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(base_url="https://trusted/context", transport=httpx.MockTransport(handler),
+                                       follow_redirects=True, event_hooks={"request": [collector.validate_request]})
+    try:
+        with pytest.raises(ValueError, match="origin"):
+            await collector.get_json("https://foreign/private")
+        assert not sent
+        with pytest.raises(ValueError, match="origin"):
+            await collector.get_json("/rest/repos")
+        assert sent == ["https://trusted/context/rest/repos"]
+    finally:
+        await collector.close()

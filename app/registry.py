@@ -7,6 +7,7 @@ import httpx
 
 from .config import settings
 from .provider_metrics import provider_metrics
+from .transport_security import tls_verification
 
 
 MANIFEST_ACCEPT = ", ".join([
@@ -48,7 +49,7 @@ class RegistryCollector:
     def __init__(self):
         auth = httpx.BasicAuth(settings.registry_username, settings.registry_token) if settings.registry_username else None
         self.client = httpx.AsyncClient(
-            base_url=settings.registry_url.rstrip("/"), auth=auth, verify=settings.verify_tls,
+            base_url=settings.registry_url.rstrip("/"), auth=auth, verify=tls_verification(),
             timeout=30, follow_redirects=True,
         )
         self.registry_host = urlsplit(settings.registry_url).netloc

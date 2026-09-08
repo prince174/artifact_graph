@@ -8,6 +8,8 @@ import httpx
 
 from .config import settings
 from .provider_metrics import provider_metrics
+from .transport_security import tls_verification
+from .upstream_urls import public_api_url, resolve_api_url
 
 
 @dataclass(frozen=True)
@@ -41,8 +43,16 @@ class ApiClient:
             headers["Authorization"] = f"Bearer {token}"
         self.client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"), auth=auth, headers=headers,
-            verify=settings.verify_tls, timeout=30, follow_redirects=True,
+            verify=tls_verification(), timeout=30, follow_redirects=True,
+            event_hooks={"request": [self.validate_request]},
         )
+
+    def url(self, path: str) -> str:
+        return resolve_api_url(str(self.client.base_url), path)
+
+    async def validate_request(self, request: httpx.Request):
+        # Also applies to redirects: credentials must never leave the configured origin.
+        self.url(str(request.url))
 
     async def get_json(self, path: str, **params):
         attempts = max(1, settings.api_retry_attempts)
@@ -50,7 +60,7 @@ class ApiClient:
             started = time.monotonic()
             response = None
             try:
-                response = await self.client.get(path, params=params)
+                response = await self.client.get(self.url(path), params=params or None)
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     response.raise_for_status()
                     provider_metrics.record(self.provider, "success", time.monotonic() - started)
@@ -133,7 +143,7 @@ class BitbucketDataCenterCollector(ApiClient):
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]
         response = await self.client.get(
-            f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}/raw/{quote(path, safe='/')}",
+            self.url(f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}/raw/{quote(path, safe='/')}"),
             params={"at": at},
         )
         if response.status_code == 404:
@@ -178,7 +188,7 @@ class BitbucketCloudCollector(ApiClient):
         cache_key = (repository.slug, path, revision)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]
-        response = await self.client.get(f"/repositories/{self.workspace}/{repository.slug}/src/{revision}/{path}")
+        response = await self.client.get(self.url(f"/repositories/{self.workspace}/{repository.slug}/src/{quote(revision, safe='')}/{quote(path, safe='/')}"))
         if response.status_code == 404:
             self.file_cache[cache_key] = None
             return None
@@ -214,7 +224,7 @@ class TeamCityCollector(ApiClient):
     async def builds(self, build_type_id: str):
         fields = "build(id,buildTypeId,number,status,state,statusText,queuedDate,startDate,finishDate,webUrl)"
         data = await self.get_json(
-            "/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:3,defaultFilter:false", fields=fields,
+            "/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:{settings.teamcity_build_limit},defaultFilter:false", fields=fields,
         )
         queued = await self.get_json(
             "/app/rest/buildQueue", locator=f"buildType:(id:{build_type_id})", fields=fields,
@@ -222,11 +232,11 @@ class TeamCityCollector(ApiClient):
         result = {}
         for build in queued.get("build", []) + data.get("build", []):
             result[str(build["id"])] = build
-        return list(result.values())[:3]
+        return list(result.values())[:settings.teamcity_build_limit]
 
     async def build_log(self, build_id: str, max_bytes: int = 5_000_000) -> str:
         chunks, size = [], 0
-        async with self.client.stream("GET", "/downloadBuildLog.html", params={"buildId": build_id}, headers={"Accept": "text/plain"}) as response:
+        async with self.client.stream("GET", self.url("/downloadBuildLog.html"), params={"buildId": build_id}, headers={"Accept": "text/plain"}) as response:
             if response.status_code in {404, 409}:
                 return ""
             response.raise_for_status()
@@ -254,7 +264,7 @@ class TeamCityCollector(ApiClient):
                         "name": name,
                         "path": full_name,
                         "size": item.get("size"),
-                        "url": f"{settings.teamcity_public_url.rstrip('/')}{content}",
+                        "url": public_api_url(str(self.client.base_url), settings.teamcity_public_url, content),
                         "contentHref": content,
                     })
 
@@ -262,7 +272,7 @@ class TeamCityCollector(ApiClient):
         return files
 
     async def artifact_content(self, href: str, max_bytes: int = 2_000_000) -> tuple[str | None, bool]:
-        response = await self.client.get(href)
+        response = await self.client.get(self.url(href))
         if response.status_code == 404:
             return None, False
         response.raise_for_status()

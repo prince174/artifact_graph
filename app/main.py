@@ -20,12 +20,14 @@ from .snapshots import diff_graphs
 from .auth import AuthMiddleware, login, login_page, logout_response
 from .mapping_quality import coverage_report
 from .alerts import dispatch_webhooks
+from .transport_security import validate_runtime_settings
 
 scheduler = AsyncIOScheduler()
 
 
 @asynccontextmanager
 async def lifespan(app):
+    validate_runtime_settings()
     await refresh()
     scheduler.add_job(refresh, "interval", minutes=settings.refresh_minutes, id="refresh", max_instances=1, coalesce=True)
     scheduler.add_job(dispatch_webhooks, "interval", minutes=1, id="webhook-outbox", max_instances=1, coalesce=True)

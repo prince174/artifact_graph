@@ -4,6 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     app_mode: str = "demo"
+    deployment_mode: str = "lab"
+    tls_ca_file: str = ""
     database_url: str = "sqlite:///./graph.db"
     refresh_minutes: int = 60
     scan_history_limit: int = 100
@@ -22,6 +24,7 @@ class Settings(BaseSettings):
     teamcity_url: str = "http://localhost:8111"
     teamcity_public_url: str = "http://localhost:8111"
     teamcity_token: str = ""
+    teamcity_build_limit: int = 3
     registry_enabled: bool = False
     registry_provider: str = "docker"
     registry_url: str = "http://localhost:5000"
