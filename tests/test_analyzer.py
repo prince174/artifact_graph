@@ -59,3 +59,36 @@ def test_does_not_treat_command_or_failed_push_as_executed():
 def test_matches_docker_repository_output_to_configured_tag():
     log = "The push refers to repository [registry:5000/api]\n1.7: digest: sha256:" + "c" * 64 + " size: 527"
     assert find_executed_pushes(log, [{"engine": "docker", "image": "registry:5000/api:1.7"}])[0]["image"] == "registry:5000/api:1.7"
+
+
+def test_terminal_tag_selects_actual_image_independent_of_configured_candidate_order():
+    configured = [{"engine": "docker", "image": f"registry:5000/api:{tag}"} for tag in ("1.0", "2.0")]
+    log = "[Step 1/1] The push refers to repository [registry:5000/api]\n[Step 1/1] 2.0: digest: sha256:" + "b" * 64 + " size: 527"
+    for candidates in (configured, list(reversed(configured)), []):
+        assert find_executed_pushes(log, candidates) == [{
+            "engine": "docker", "image": "registry:5000/api:2.0", "evidence": "teamcity_build_log", "digest": "sha256:" + "b" * 64,
+        }]
+
+
+def test_multiple_pushes_to_same_repository_keep_each_terminal_tag_and_digest():
+    log = "\n".join([
+        "The push refers to repository [registry:5000/api]", "release-1: digest: sha256:" + "a" * 64,
+        "The push refers to repository [registry:5000/api]", "release-2: digest: sha256:" + "b" * 64,
+    ])
+    configured = [{"engine": "docker", "image": "registry:5000/api:release-1"}]
+    assert [(image["image"], image["digest"]) for image in find_executed_pushes(log, configured)] == [
+        ("registry:5000/api:release-1", "sha256:" + "a" * 64),
+        ("registry:5000/api:release-2", "sha256:" + "b" * 64),
+    ]
+
+
+def test_repository_marker_retains_explicit_command_tag_when_digest_line_has_no_tag():
+    log = "docker push registry:5000/api:2.0\nThe push refers to repository [registry:5000/api]\ndigest: sha256:" + "b" * 64
+    configured = [{"engine": "docker", "image": f"registry:5000/api:{tag}"} for tag in ("1.0", "2.0")]
+    assert find_executed_pushes(log, configured)[0]["image"] == "registry:5000/api:2.0"
+
+
+def test_ambiguous_configured_tags_are_not_guessed_when_terminal_tag_is_missing():
+    log = "The push refers to repository [registry:5000/api]\ndigest: sha256:" + "b" * 64
+    configured = [{"engine": "docker", "image": f"registry:5000/api:{tag}"} for tag in ("1.0", "2.0")]
+    assert find_executed_pushes(log, configured)[0]["image"] == "registry:5000/api"

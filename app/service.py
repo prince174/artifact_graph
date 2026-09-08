@@ -317,7 +317,16 @@ def deduplicate(items, keys=("id",)):
 
 def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict], build_log: str = "") -> dict:
     successful = build.get("state", "finished") == "finished" and build.get("status") == "SUCCESS"
-    configured = {(item.get("engine"), item["image"]): item for item in pushed_images}
+    configured = {}
+    for item in pushed_images:
+        key = (item.get("engine"), item["image"])
+        merged = {**configured.get(key, {}), **item}
+        paths = set(configured.get(key, {}).get("sourcePaths", [])) | set(item.get("sourcePaths", []))
+        if item.get("evidence") and item["evidence"] != "teamcity_build_log":
+            paths.add(item["evidence"])
+        if paths:
+            merged["sourcePaths"] = sorted(paths)
+        configured[key] = merged
     actual_images = [
         {**configured.get((item["engine"], item["image"]), {}), **item}
         for item in find_executed_pushes(build_log, pushed_images)

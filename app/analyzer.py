@@ -6,6 +6,7 @@ SCRIPT_RE = re.compile(r"(?<![\w.-])(?:\./)?([\w.-]+(?:/[\w.-]+)*\.(?:sh|ps1|py)
 MAVEN_PROPERTY_RE = re.compile(r"<([A-Za-z_][\w.-]*)>\s*([^<]+?)\s*</\1>")
 VARIABLE_RE = re.compile(r"\$\{([\w.-]+)}")
 DIGEST_RE = re.compile(r"\bdigest:\s*(sha256:[0-9a-f]{64})\b", re.I)
+TAGGED_DIGEST_RE = re.compile(r"(?<![\w./:-])([A-Za-z0-9_][A-Za-z0-9_.-]*):\s*digest:\s*sha256:[0-9a-f]{64}\b", re.I)
 ERROR_RE = re.compile(r"\b(error|failed|denied|unauthorized|manifest unknown)\b", re.I)
 PUSH_REPOSITORY_RE = re.compile(r"The push refers to repository \[([^\]]+)]", re.I)
 
@@ -30,8 +31,12 @@ def find_executed_pushes(build_log: str, configured: list[dict] | None = None) -
             continue
         if repository := PUSH_REPOSITORY_RE.search(line):
             repo = repository.group(1)
-            candidate = next((item for item in configured if _image_repository(item["image"]) == repo), None)
-            attempt = {"engine": "docker", "image": candidate["image"] if candidate else repo, "evidence": "teamcity_build_log"}
+            candidates = {item["image"] for item in configured if _image_repository(item["image"]) == repo}
+            if attempt and _image_repository(attempt["image"]) == repo:
+                image = attempt["image"]
+            else:
+                image = next(iter(candidates)) if len(candidates) == 1 else repo
+            attempt = {"engine": "docker", "image": image, "evidence": "teamcity_build_log"}
             continue
         if not attempt:
             continue
@@ -43,6 +48,10 @@ def find_executed_pushes(build_log: str, configured: list[dict] | None = None) -
         if digest or podman_done:
             if digest:
                 attempt["digest"] = digest.group(1).lower()
+                if tag := TAGGED_DIGEST_RE.search(line):
+                    # The terminal Docker output identifies the tag actually
+                    # pushed; several configured tags may share one repository.
+                    attempt["image"] = f"{_image_repository(attempt['image'])}:{tag.group(1)}"
             results.append(attempt)
             attempt = None
     return list({(item["engine"], item["image"], item.get("digest")): item for item in results}.values())

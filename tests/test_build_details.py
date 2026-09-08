@@ -48,3 +48,20 @@ def test_failed_build_does_not_claim_image_was_pushed():
     assert node["pushedImages"] == []
     assert node["hasImagePush"] is False
     assert node["sbomArtifacts"][0]["relatedImages"] == []
+
+
+def test_executed_push_preserves_all_source_paths_separately_from_log_evidence():
+    images = [{"engine": "docker", "image": "registry/app:1", "evidence": path}
+              for path in ["workspace/repo/pom.xml", "workspace/repo/ci/push.sh", "workspace/repo/pom.xml"]]
+    log = "docker push registry/app:1\ndigest: sha256:" + "a" * 64
+    node = build_node({"id": 8, "status": "SUCCESS"}, images, [], log)
+    push = node["pushedImages"][0]
+    assert push["evidence"] == "teamcity_build_log"
+    assert push["sourcePaths"] == ["workspace/repo/ci/push.sh", "workspace/repo/pom.xml"]
+    assert push["digest"] == "sha256:" + "a" * 64
+
+
+def test_configured_source_without_confirmed_log_is_not_a_push():
+    images = [{"engine": "docker", "image": "registry/app:1", "evidence": "repo/pom.xml"}]
+    node = build_node({"id": 9, "status": "SUCCESS"}, images, [], "build complete")
+    assert not node["hasImagePush"] and node["pushedImages"] == []
