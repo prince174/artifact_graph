@@ -1,13 +1,17 @@
 from collections import defaultdict
 import re
 
+from .subgraph import configuration_repository_ids
+
 
 def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[str, float]]:
     """Place the strict BB project -> repo -> TC project -> config -> build chain in lanes."""
     by_id = {node["id"]: node for node in nodes}
     outgoing: dict[str, list[dict]] = defaultdict(list)
+    incoming: dict[str, list[dict]] = defaultdict(list)
     for edge in edges:
         outgoing[edge["source"]].append(edge)
+        incoming[edge["target"]].append(edge)
 
     bb_projects = sorted((n for n in nodes if n["kind"] == "bb_project"), key=_sort_key)
     repositories: list[dict] = []
@@ -26,7 +30,11 @@ def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[st
         tc_projects = sorted(_children(repo["id"], "tc_project", "maps_to", by_id, outgoing), key=_sort_key)
         rows = []
         for tc_project in tc_projects:
-            configs = sorted(_children(tc_project["id"], "build_configuration", "contains", by_id, outgoing), key=_sort_key)
+            configs = sorted(
+                (config for config in _children(tc_project["id"], "build_configuration", "contains", by_id, outgoing)
+                 if repo["id"] in configuration_repository_ids(config, by_id, incoming)),
+                key=_sort_key,
+            )
             for config in configs:
                 if config["id"] in config_rows:
                     rows.append(config_rows[config["id"]])
@@ -43,14 +51,22 @@ def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[st
         if not rows:
             cursor += 140
 
+    previous_repo_y = float("-inf")
     for repo in repositories:
-        positions[repo["id"]] = _point(280, _average(repo_rows[repo["id"]]))
+        # Shared configurations can give several repositories the same center.
+        # Keep BB project/repository order while reserving each its own row.
+        row = max(_average(repo_rows[repo["id"]]), previous_repo_y + 90)
+        positions[repo["id"]] = _point(280, row)
+        previous_repo_y = row
     for project in bb_projects:
         children = [e["target"] for e in outgoing[project["id"]] if e["target"] in positions]
         if children:
             positions[project["id"]] = _point(80, _average([positions[c]["y"] for c in children]))
-    for project_id, rows in tc_rows.items():
-        positions[project_id] = _point(520, _average(rows))
+    previous_project_y = float("-inf")
+    for project_id in sorted(tc_rows, key=lambda key: (_average(sorted(set(tc_rows[key]))), _sort_key(by_id[key]))):
+        row = max(_average(sorted(set(tc_rows[project_id]))), previous_project_y + 90)
+        positions[project_id] = _point(520, row)
+        previous_project_y = row
 
     for config_id, row in config_rows.items():
         positions[config_id] = _point(760, row)
@@ -62,8 +78,8 @@ def layered_positions(nodes: list[dict], edges: list[dict]) -> dict[str, dict[st
         for index, target in enumerate(targets):
             positions[target["id"]] = _point(1080, start + index * 55)
 
-    fallback_y = cursor + 80
-    for node in nodes:
+    fallback_y = max([cursor, *(position["y"] for position in positions.values())]) + 80
+    for node in sorted(nodes, key=lambda item: (item["kind"], _sort_key(item))):
         if node["id"] not in positions:
             x = {"bb_project": 80, "repository": 280, "tc_project": 520, "build_configuration": 760}.get(node["kind"], 1080)
             positions[node["id"]] = _point(x, fallback_y)

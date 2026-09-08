@@ -43,3 +43,56 @@ def test_builds_are_ordered_by_numeric_number_not_lexically():
     ]
     result = layered_positions(nodes, edges)
     assert result["b2"]["y"] < result["b10"]["y"]
+
+
+def shared_layout_graph(*, disjoint=True):
+    nodes = [
+        {"id": "p", "kind": "bb_project", "label": "Project"},
+        {"id": "ra", "kind": "repository", "label": "Alpha"},
+        {"id": "rb", "kind": "repository", "label": "Beta"},
+        {"id": "rc", "kind": "repository", "label": "Canary without builds"},
+        {"id": "tc", "kind": "tc_project", "label": "Shared"},
+        {"id": "cab", "kind": "build_configuration", "label": "Composite", "mappedRepositoryIds": ["ra", "rb"]},
+        {"id": "bab", "kind": "build", "label": "#1"},
+    ]
+    links = [("p", "ra", "contains"), ("p", "rb", "contains"), ("p", "rc", "contains"),
+             ("ra", "tc", "maps_to"), ("rb", "tc", "maps_to"), ("tc", "cab", "contains"), ("cab", "bab", "ran_as")]
+    if disjoint:
+        for suffix in ("a", "b"):
+            nodes.extend([
+                {"id": "c" + suffix, "kind": "build_configuration", "label": suffix, "mappedRepositoryIds": ["r" + suffix]},
+                {"id": "b" + suffix, "kind": "build", "label": "#2"},
+            ])
+            links.extend([("tc", "c" + suffix, "contains"), ("c" + suffix, "b" + suffix, "ran_as")])
+    return nodes, [{"source": source, "target": target, "relation": relation} for source, target, relation in links]
+
+
+def test_shared_project_uses_separate_repository_rows_and_only_owned_config_centers():
+    nodes, edges = shared_layout_graph()
+    positions = layered_positions(nodes, edges)
+    assert positions["ra"]["y"] < positions["rb"]["y"] < positions["rc"]["y"]
+    assert positions["ra"]["y"] == (positions["ca"]["y"] + positions["cab"]["y"]) / 2
+    assert positions["rb"]["y"] >= (positions["cb"]["y"] + positions["cab"]["y"]) / 2
+    columns = {"bb_project": 80, "repository": 280, "tc_project": 520, "build_configuration": 760, "build": 1080}
+    assert all(positions[node["id"]]["x"] == columns[node["kind"]] for node in nodes)
+    assert len({(point["x"], point["y"]) for point in positions.values()}) == len(nodes)
+
+
+def test_one_multi_root_config_does_not_stack_its_repositories_or_canary():
+    nodes, edges = shared_layout_graph(disjoint=False)
+    positions = layered_positions(nodes, edges)
+    assert positions["rb"]["y"] - positions["ra"]["y"] >= 90
+    assert positions["rc"]["y"] - positions["rb"]["y"] >= 90
+    assert positions["cab"]["y"] == positions["bab"]["y"]
+    assert len(positions) == len(nodes)
+
+
+def test_shared_and_unconnected_layout_is_independent_of_api_iteration_order():
+    nodes, edges = shared_layout_graph()
+    nodes.extend([
+        {"id": "empty-project", "kind": "tc_project", "label": "Unconnected TC"},
+        {"id": "empty-config", "kind": "build_configuration", "label": "Unconnected config", "mappedRepositoryIds": []},
+    ])
+    forward = layered_positions(nodes, edges)
+    assert layered_positions(list(reversed(nodes)), list(reversed(edges))) == forward
+    assert len({(point["x"], point["y"]) for point in forward.values()}) == len(nodes)
