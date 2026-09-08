@@ -34,23 +34,50 @@ def select_visible_page(nodes: list[dict], edges: list[dict], query: str = "", *
             children = [by_id[e["target"]] for e in outgoing[project["id"]] if e["target"] in by_id and by_id[e["target"]]["kind"] == "repository"]
             selected_repos.extend(sorted(children, key=_sort_key)[:repo_limit])
 
-    selected = {repo["id"] for repo in selected_repos}
+    selected_repo_ids = {repo["id"] for repo in selected_repos}
+    selected = set(selected_repo_ids)
     for repo in selected_repos:
         selected.update(e["source"] for e in incoming[repo["id"]] if e.get("relation") == "contains")
         selected.update(e["target"] for e in outgoing[repo["id"]] if e.get("relation") == "maps_to")
     tc_projects = [node_id for node_id in selected if by_id.get(node_id, {}).get("kind") == "tc_project"]
     for project_id in tc_projects:
-        selected.update(e["target"] for e in outgoing[project_id] if e.get("relation") == "contains")
+        selected.update(
+            e["target"] for e in outgoing[project_id]
+            if e.get("relation") == "contains"
+            and by_id.get(e["target"], {}).get("kind") == "build_configuration"
+            and configuration_repository_ids(by_id[e["target"]], by_id, incoming) & selected_repo_ids
+        )
     configurations = [node_id for node_id in selected if by_id.get(node_id, {}).get("kind") == "build_configuration"]
     for config_id in configurations:
         selected.update(e["source"] for e in incoming[config_id] if e.get("relation") == "contains")
-        selected.update(e["target"] for e in outgoing[config_id])
+        selected.update(e["target"] for e in outgoing[config_id] if e.get("relation") == "ran_as" and by_id.get(e["target"], {}).get("kind") == "build")
 
     visible_nodes = [node for node in nodes if node["id"] in selected]
     visible_edges = [edge for edge in edges if edge["source"] in selected and edge["target"] in selected]
     next_offset = offset + limit
     pagination = {"mode": mode, "offset": offset, "limit": limit, "total": total, "hasMore": next_offset < total, "nextCursor": encode_cursor(mode, next_offset) if next_offset < total else None}
     return visible_nodes, visible_edges, pagination
+
+
+def configuration_repository_ids(configuration: dict, by_id: dict, incoming: dict) -> set[str]:
+    """Resolve config ownership without assuming every repo owns its TC project.
+
+    Old saved graphs did not include explicit mappings, so they retain their
+    project-level association until their next scan. An explicit empty mapping
+    or unavailable config must never borrow a sibling's repositories.
+    """
+    if configuration.get("mappingUnavailable"):
+        return set()
+    if "mappedRepositoryIds" in configuration:
+        return {repo_id for repo_id in configuration.get("mappedRepositoryIds", []) if by_id.get(repo_id, {}).get("kind") == "repository"}
+    projects = {
+        edge["source"] for edge in incoming.get(configuration["id"], [])
+        if edge.get("relation") == "contains" and by_id.get(edge["source"], {}).get("kind") == "tc_project"
+    }
+    return {
+        edge["source"] for project_id in projects for edge in incoming.get(project_id, [])
+        if edge.get("relation") == "maps_to" and by_id.get(edge["source"], {}).get("kind") == "repository"
+    }
 
 
 def paginate_mapping_issues(nodes: list[dict], edges: list[dict], *, cursor: str = "", limit: int = 10):

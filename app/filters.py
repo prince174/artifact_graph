@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+from .subgraph import configuration_repository_ids
+
 
 def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engine="", has_image=None, has_sbom=None, target_only=False, mapping_issues=False, since_days=0):
     if mapping_issues:
@@ -15,14 +17,15 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
         outgoing.setdefault(edge["source"], []).append(edge)
         incoming.setdefault(edge["target"], []).append(edge)
     configurations = {node["id"] for node in nodes if node["kind"] == "build_configuration"}
+    repository_scope = {node["id"] for node in nodes if node["kind"] == "repository"}
     if target_only:
         configurations &= {node["id"] for node in nodes if node["kind"] == "build_configuration" and node.get("hasTargetOutput")}
 
     if bb_project:
         projects = {node["id"] for node in nodes if node["kind"] == "bb_project" and node["label"] == bb_project}
         repos = {edge["target"] for project in projects for edge in outgoing.get(project, []) if edge["relation"] == "contains"}
-        tc_projects = {edge["target"] for repo in repos for edge in outgoing.get(repo, []) if edge["relation"] == "maps_to"}
-        configurations &= {edge["target"] for project in tc_projects for edge in outgoing.get(project, []) if edge["relation"] == "contains"}
+        repository_scope &= repos
+        configurations = {config for config in configurations if configuration_repository_ids(by_id[config], by_id, incoming) & repository_scope}
     if tc_project:
         projects = {node["id"] for node in nodes if node["kind"] == "tc_project" and node["label"] == tc_project}
         configurations &= {edge["target"] for project in projects for edge in outgoing.get(project, []) if edge["relation"] == "contains"}
@@ -62,9 +65,8 @@ def filter_graph(nodes, edges, *, bb_project="", tc_project="", status="", engin
             target = by_id.get(edge["target"])
             if target and (target["kind"] != "build" or visible_build(target)):
                 selected.add(edge["target"])
-    for node_id in list(selected):
-        if by_id.get(node_id, {}).get("kind") == "tc_project":
-            selected.update(edge["source"] for edge in incoming.get(node_id, []) if edge["relation"] == "maps_to")
+    for config in configurations:
+        selected.update(configuration_repository_ids(by_id[config], by_id, incoming) & repository_scope)
     for node_id in list(selected):
         if by_id.get(node_id, {}).get("kind") == "repository":
             selected.update(edge["source"] for edge in incoming.get(node_id, []) if edge["relation"] == "contains")

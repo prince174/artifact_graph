@@ -339,6 +339,8 @@ def build_node(build: dict, pushed_images: list[dict], artifacts: list[dict], bu
 
 def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
     """Propagate actual push/SBOM presence upward through the product chain."""
+    from .subgraph import configuration_repository_ids
+
     by_id = {node["id"]: node for node in nodes}
     incoming: dict[str, list[dict]] = {}
     for edge in edges:
@@ -351,8 +353,6 @@ def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
     stages = [
         ("build_configuration", "ran_as", "build"),
         ("tc_project", "contains", "build_configuration"),
-        ("repository", "maps_to", "tc_project"),
-        ("bb_project", "contains", "repository"),
     ]
     for parent_kind, relation, child_kind in stages:
         parents = {
@@ -364,13 +364,17 @@ def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
         }
         relevant.update(parents)
 
-    for node in nodes:
-        if node["kind"] in {"bb_project", "repository", "tc_project", "build_configuration"}:
-            node.setdefault("active", True)
-            node["hasTargetOutput"] = node["id"] in relevant
-            node["visualReason"] = "inactive" if not node["active"] else "target_output_branch" if node["hasTargetOutput"] else "active"
-        elif node["kind"] == "build":
-            node["visualReason"] = build_visual_state(node)
+    # A shared TC project aggregates all its configs, but a repository only
+    # inherits outputs from configurations which actually check it out.
+    for config_id in tuple(relevant):
+        if by_id[config_id]["kind"] == "build_configuration":
+            relevant.update(configuration_repository_ids(by_id[config_id], by_id, incoming))
+    relevant.update(
+        edge["source"] for repo_id in tuple(relevant)
+        if by_id[repo_id]["kind"] == "repository"
+        for edge in incoming.get(repo_id, [])
+        if edge["relation"] == "contains" and by_id.get(edge["source"], {}).get("kind") == "bb_project"
+    )
 
     # Container activity is derived from the activity of direct children.
     for node in nodes:
@@ -379,6 +383,14 @@ def annotate_visual_state(nodes: list[dict], edges: list[dict]) -> None:
             children = [by_id[e["target"]] for e in edges if e["source"] == node["id"] and e["relation"] == "contains" and e["target"] in by_id and by_id[e["target"]]["kind"] == child_kind]
             if children:
                 node["active"] = any(child.get("active", True) for child in children)
+
+    for node in nodes:
+        if node["kind"] in {"bb_project", "repository", "tc_project", "build_configuration"}:
+            node.setdefault("active", True)
+            node["hasTargetOutput"] = node["id"] in relevant
+            node["visualReason"] = "inactive" if not node["active"] else "target_output_branch" if node["hasTargetOutput"] else "active"
+        elif node["kind"] == "build":
+            node["visualReason"] = build_visual_state(node)
 
 
 async def registry_manifest(registry, image: str) -> dict:
