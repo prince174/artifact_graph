@@ -2,6 +2,22 @@
 
 Этот документ описывает эксплуатацию сервиса Artifact Graph в production: подготовку окружения, безопасное развёртывание, миграции PostgreSQL, мониторинг, устранение сбоев, резервное копирование и ротацию секретов.
 
+Пошаговое первичное подключение и будущий переход с Cloud описаны в [README: Bitbucket Data Center в production](../README.md#bitbucket-data-center-production). Здесь рассматривается эксплуатация уже настроенного контура.
+
+Все команды ниже выполняются на Linux-хосте из отдельного production checkout. Перед каждой новой операторской сессией определите функцию, которая явно выбирает файл, окружение и Compose project:
+
+```bash
+cd /opt/artefact-graph-prod
+pcompose() {
+  docker compose --project-name artefact-graph-prod \
+    --env-file /opt/artefact-graph-prod/.env.prod \
+    -f /opt/artefact-graph-prod/compose.prod.yaml \
+    --project-directory /opt/artefact-graph-prod "$@"
+}
+```
+
+Если checkout расположен иначе, измените все три абсолютных пути. Не заменяйте `pcompose` обычным `docker compose`: тот может выбрать лабораторный `compose.yaml`, `.env` и другой volume. Скриптам backup/restore/deploy также обязательно передавайте `--prod`.
+
 ## 1. Эксплуатационные границы
 
 Рабочий контур выглядит так:
@@ -19,27 +35,33 @@ orchestrator -> /health/live и /health/ready
 
 Запускайте ровно **один экземпляр приложения `graph` и один worker Uvicorn**. Планировщик сканирования и обработчик webhook outbox находятся внутри процесса. `refresh_lock` защищает только один процесс; несколько реплик будут параллельно обновлять общий граф и могут повторно отправить webhook. PostgreSQL может быть отказоустойчивым внешним сервисом, но приложение остаётся single-instance до появления распределённой блокировки и атомарного захвата outbox-записей.
 
-Встроенные `teamcity`, `teamcity-agent`, `registry` и профиль `datacenter` из базового `compose.yaml` предназначены для интеграционного стенда. В частности, TeamCity agent запускается с `privileged: true`, а порты 8111 и 5000 публикуются на хост. Не запускайте эти сервисы в production-контуре Artifact Graph, если они не являются осознанной частью отдельного защищённого стенда.
+`compose.prod.yaml` — самостоятельный файл, содержащий только `graph` и `postgres`. Bitbucket и TeamCity в этом контуре уже существуют на внешних серверах. Не объединяйте его с лабораторным `compose.yaml`. Встроенные `teamcity`, `registry`, профиль `datacenter` и привилегированный `teamcity-agent` профиля `build-lab` предназначены только для интеграционного стенда; опубликованные лабораторные порты по умолчанию привязаны к loopback.
+
+Для перехода Cloud → Data Center или на другие серверы создавайте отдельный project/volume с пустой базой. Не переиспользуйте Cloud-базу: там остаются прежние графы, snapshots и история, которые при недоступности нового upstream могут показываться как stale. `artefact-graph-prod` отделён от лабораторного `artefact-graph`, но повторное переключение уже существующего production-контура требует новой изолированной установки. Не удаляйте старый volume — сохраните его для отката и аудита.
+
+Обогащение manifest-ов Registry/Nexus в стандартном prod-compose отключено. Поиск `docker push`/`podman push` в логах и `sbom.json` в TeamCity artifacts продолжает работать без него. Для включения registry нужен отдельный проверенный production override с HTTPS и RO-доступом.
 
 ## 2. Обязательный preflight
 
 ### 2.1. Безопасность конфигурации
 
-Базовый `compose.yaml` содержит удобные для разработки значения: `APP_MODE=demo`, `VERIFY_TLS=false`, `WEB_COOKIE_SECURE=false`, пароль PostgreSQL `graph` и публикацию порта приложения на всех интерфейсах. Это не production-конфигурация. До первого запуска подготовьте проверенный production override или эквивалентное описание сервиса со следующими свойствами:
+Не используйте лабораторный `compose.yaml` для production: несмотря на включённую по умолчанию проверку TLS и loopback-порты, он содержит demo-режим, лабораторные сервисы и пароль PostgreSQL `graph`. Подготовьте `.env.prod` по `.env.prod.example`. Отдельный `compose.prod.yaml` фиксирует безопасные настройки, а production preflight проверяет адреса, пароли и CA:
 
-- `APP_MODE=live`;
+- `APP_MODE=live`, `DEPLOYMENT_MODE=production`;
 - `WEB_AUTH_ENABLED=true`;
 - длинный случайный `WEB_PASSWORD` (рекомендуется не менее 32 случайных байт) и непустой `WEB_USERNAME`;
-- `WEB_COOKIE_SECURE=true`, если пользовательский трафик приходит по HTTPS;
+- `WEB_COOKIE_SECURE=true`; пользовательский трафик обязательно приходит по HTTPS;
 - `VERIFY_TLS=true` для Bitbucket, TeamCity и Registry/Nexus;
-- уникальные учётные данные PostgreSQL вместо `graph:graph`;
+- уникальный `POSTGRES_PASSWORD` из минимум 32 URL-safe символов (`A-Z`, `a-z`, `0-9`, `_`, `-`), отличный от web-пароля; например, сгенерируйте два независимых значения `openssl rand -hex 32`;
 - порт 8080 доступен только reverse proxy, например через bind на `127.0.0.1`, служебную Docker network или внутренний load balancer;
 - PostgreSQL не публикует порт наружу;
 - `/metrics`, `/health/live` и `/health/ready` закрыты сетевым ACL: эти маршруты намеренно не требуют web-сессии;
-- `BITBUCKET_URL`, `TEAMCITY_URL`, `REGISTRY_URL` указывают на адреса, доступные из контейнера, а `TEAMCITY_PUBLIC_URL` и `REGISTRY_PUBLIC_URL` — на адреса, доступные пользователю;
+- `BITBUCKET_URL`, `TEAMCITY_URL` указывают на HTTPS base URL, доступные из контейнера, а `TEAMCITY_PUBLIC_URL` — на HTTPS base URL, доступный пользователю; сохраняйте context path `/bitbucket` или `/teamcity`, но не добавляйте `/rest/api`, страницу репозитория, query или токен в URL;
 - системные часы хоста, reverse proxy и webhook receiver синхронизированы по NTP.
 
 Для reverse proxy включите TLS, HSTS, ограничение размера запросов и rate limit на `/login`. Встроенный лимитер входа хранится в памяти процесса, сбрасывается при рестарте и не заменяет сетевую защиту. Не публикуйте напрямую порты TeamCity, Registry, PostgreSQL и Docker daemon.
+
+Если корпоративные серверы используют собственный CA, поместите PEM bundle в отдельный каталог хоста и задайте в `.env.prod`, например, `TLS_CA_HOST_DIR=/etc/artifact-graph/certs` и `TLS_CA_FILE=/app/certs/company-ca.pem`. Каталог монтируется read-only; сертификат должен читаться пользователем контейнера `10001:10001`. Монтируйте только публичные сертификаты CA, не private keys. Bundle добавляется к системному хранилищу доверия; пустой `TLS_CA_FILE` оставляет только системные CA. Отсутствующий/невалидный bundle останавливает запуск. Не отключайте `VERIFY_TLS` ради корпоративного сертификата. Для HTTPS smoke с таким CA отдельно задайте хостовый `SMOKE_CA_FILE`.
 
 ### 2.2. Учётные записи и секреты
 
@@ -50,19 +72,18 @@ orchestrator -> /health/live и /health/ready
 - Docker Registry/Nexus — только чтение manifest-ов;
 - PostgreSQL — доступ только к базе Artifact Graph; права создания/удаления баз выдаются отдельному backup-оператору, если это возможно.
 
-`BB_BOOTSTRAP_TOKEN`, `TC_ADMIN_TOKEN` и любые bootstrap/admin-токены не должны попадать в `.env` контейнера `graph`. После первоначальной настройки их нужно удалить с хоста или хранить отдельно в менеджере секретов.
+`BB_BOOTSTRAP_TOKEN`, `BB_CHECKOUT_TOKEN`, `TC_ADMIN_TOKEN` и любые bootstrap/admin-токены не нужны production-коллектору и не должны попадать в `.env.prod` или контейнер `graph`. Не запускайте bootstrap тестовых проектов на production-серверах. Для DC используйте PAT отдельной RO-учётки, а не Cloud API token; в TC проверьте и прямые права, и наследование через группы.
 
 Сервис сейчас получает секреты через переменные окружения. Это означает, что пользователь с доступом к Docker daemon может увидеть их через метаданные контейнера. Ограничьте членство в группе `docker` и доступ к сокету Docker как привилегированный доступ к хосту.
 
-На хосте создавайте `.env` с закрытыми правами:
+На хосте создавайте `.env.prod` с закрытыми правами, только если файла ещё нет:
 
 ```bash
 umask 077
-install -m 600 /dev/null /opt/artefact-graph/.env
-chown root:root /opt/artefact-graph/.env
+test ! -e .env.prod && install -m 600 .env.prod.example .env.prod
 ```
 
-Заполните файл через защищённый канал и проверьте, что он не попадает в backup исходников, артефакты CI и логи. Не запускайте `docker compose config` без `--quiet` в CI: полный вывод содержит подставленные секреты.
+Заполните файл через защищённый канал под учёткой deployment-оператора и проверьте, что он не попадает в backup исходников, артефакты CI и логи. Не запускайте `pcompose config` без `--quiet` в CI: полный вывод содержит подставленные секреты.
 
 Если включены webhook-и:
 
@@ -81,13 +102,13 @@ chown root:root /opt/artefact-graph/.env
 1. Убедитесь, что CI для выбранного commit/tag зелёный, а Docker image соответствует ожидаемому Git SHA. Релизные образы публикуются в GHCR по тегам `v*` и имеют provenance attestation.
 2. Зафиксируйте текущие Git SHA, `/api/version`, Alembic revision и время последнего успешного скана в заявке на изменение.
 3. Проверьте чистоту checkout: `scripts/deploy.sh` откажется работать поверх dirty tree.
-4. Проверьте конфигурацию без печати значений: `docker compose config --quiet`.
+4. Проверьте конфигурацию без печати значений: `pcompose config --quiet`.
 5. Проверьте DNS, маршруты и цепочки доверия CA от контейнера до Bitbucket, TeamCity, Registry/Nexus и webhook receiver.
-6. Проверьте `config/mapping-rules.yaml`; файл монтируется read-only, но ошибочный YAML остановит обновление графа.
-7. Создайте и восстановите pre-deploy backup по процедуре ниже.
+6. Проверьте файл из `MAPPING_RULES_HOST_PATH`; production-правила лучше хранить вне Git checkout. Файл монтируется read-only, но ошибочный YAML остановит обновление графа.
+7. Создайте pre-deploy backup и проверьте его восстановлением во временную базу по процедуре ниже, не заменяя рабочую базу.
 8. Отдельно проверьте новую миграцию на восстановленной копии production-базы или на staging с эквивалентным объёмом данных.
 
-На первой установке не полагайтесь на автоматическое копирование `.env.example` в `scripts/deploy.sh`: после копирования скрипт сразу запускает контейнеры, а example содержит placeholder-значения. Сначала клонируйте репозиторий, создайте production `.env` и production Compose override, затем выполняйте deploy.
+На первой установке `scripts/deploy.sh --prod` при отсутствии `.env.prod` копирует в него шаблон `.env.prod.example`, выставляет mode `600` и **останавливается до запуска контейнеров** с кодом `2`. Это ожидаемый запрос настройки: заполните URL, RO-токены, разные случайные пароли и CA, затем повторите команду. Не копируйте поверх уже заполненного `.env.prod`.
 
 ## 3. Развёртывание и миграции
 
@@ -96,10 +117,10 @@ chown root:root /opt/artefact-graph/.env
 Для встроенного PostgreSQL:
 
 ```bash
-cd /opt/artefact-graph
-backup="backups/predeploy-$(date -u +%Y%m%dT%H%M%SZ).dump"
-bash scripts/backup.sh "$backup"
-bash scripts/verify-backup.sh "$backup"
+cd /opt/artefact-graph-prod
+backup="backups/prod/predeploy-$(date -u +%Y%m%dT%H%M%SZ).dump"
+bash scripts/backup.sh --prod "$backup"
+bash scripts/verify-backup.sh --prod "$backup"
 ```
 
 Не продолжайте, если checksum или тестовое восстановление завершились ошибкой. Для внешнего PostgreSQL используйте согласованную процедуру платформы и отдельную тестовую базу; текущие скрипты жёстко ориентированы на Compose-сервис `postgres`, пользователя и базу `graph`.
@@ -108,60 +129,48 @@ bash scripts/verify-backup.sh "$backup"
 
 Контейнер `graph` выполняет `alembic upgrade head` **до** запуска API. Поэтому ошибка миграции видна как цикл рестартов контейнера, а `/health/live` не станет доступен.
 
-Минимальные проверки на staging-копии:
+Для диагностики production прочитайте текущую revision без изменения схемы:
 
 ```bash
-docker compose run --rm --no-deps graph alembic heads
-docker compose run --rm --no-deps graph alembic history
-docker compose run --rm graph alembic upgrade head
-docker compose run --rm graph alembic current
+pcompose exec -T graph alembic current
 ```
 
-Для `upgrade head` задайте `DATABASE_URL` тестовой восстановленной базы, а не production. После миграции запустите целевую версию приложения на этой базе и выполните authenticated smoke и проверку поиска репозитория. Не запускайте старую и новую версии приложения одновременно во время миграции.
+Репетицию `alembic heads`, `alembic history`, `alembic upgrade head` и `alembic current` выполняйте в отдельном staging checkout/project с собственными `.env`, PostgreSQL и volume. До `upgrade head` проверьте, что `DATABASE_URL` указывает именно на восстановленную тестовую базу; не используйте для репетиции функцию `pcompose` из этого документа. После миграции запустите целевую версию приложения на этой базе и выполните authenticated smoke и проверку поиска репозитория. Webhook-и в staging отключите, чтобы не отправлять production-события. Не запускайте старую и новую версии приложения одновременно во время миграции.
 
 ### 3.3. Deploy
 
-`scripts/deploy.sh` клонирует репозиторий при необходимости, выполняет `git pull --ff-only`, собирает образы, пересоздаёт контейнеры и запускает smoke. При ошибке он возвращает код приложения на предыдущий Git SHA, но **не откатывает схему базы**.
-
-Базовый скрипт поднимает все сервисы без profile и явно использует только `compose.yaml`: дополнительный override он сейчас не подключает. Поэтому не запускайте его без изменений в минимальном production-контуре. Используйте отдельный версионированный production deploy wrapper с `-f compose.yaml -f compose.production.yaml` либо ручную процедуру с явным списком сервисов. Например, для встроенного PostgreSQL:
+`scripts/deploy.sh --prod` клонирует репозиторий при необходимости, требует чистый checkout, выполняет `git pull --ff-only`, проверяет production-конфигурацию, собирает образ, пересоздаёт только `postgres` и `graph` с сохранением volume и запускает authenticated smoke. Файл `compose.prod.yaml`, `.env.prod` и project `artefact-graph-prod` выбираются явно; переменные `COMPOSE_FILE`/`COMPOSE_PROJECT_NAME` не переключат скрипт на лабораторный контур. Скрипт обновляет текущую tracking-ветку, поэтому перед production deploy проверьте её и нужный SHA.
 
 ```bash
-docker compose -f compose.yaml -f compose.production.yaml \
-  up -d --build --force-recreate postgres graph
+bash scripts/deploy.sh --prod \
+  https://github.com/prince174/artifact_graph.git \
+  /opt/artefact-graph-prod
 ```
 
-Если PostgreSQL внешний, запускайте только `graph` с корректным `DATABASE_URL` и не создавайте локальный `postgres`.
-
-Пример запуска `scripts/deploy.sh` применим к изолированному all-in-one стенду или после того, как его Compose-вызов официально адаптирован под production-файл:
-
-```bash
-sudo bash scripts/deploy.sh \
-  ssh://git@bitbucket.example/scm/tools/artefact-graph.git \
-  /opt/artefact-graph
-```
+Если код перенесён в отдельный Bitbucket-репозиторий, замените Git URL точным clone URL из его UI; runtime-токен коллектора не используйте для deployment-доступа к коду.
 
 Во время запуска следите за миграцией и первым сканом:
 
 ```bash
-docker compose ps
-docker compose logs --since 15m --follow graph
+pcompose ps
+pcompose logs --since 15m --follow graph
 ```
 
 Первый scan выполняется в startup lifecycle и может занять заметное время. Не прерывайте контейнер только потому, что readiness ещё не стала зелёной; сравнивайте длительность с обычной `artifact_graph_last_scan_duration_seconds` и установленным timeout окна изменения.
 
+По умолчанию smoke имеет 180 секунд; для большого контура заранее задайте `SMOKE_TIMEOUT_SECONDS`, например `900`. При ошибке deploy/smoke скрипт возвращает ненулевой код и сохраняет контейнеры, checkout и данные для диагностики. **Автоматического отката кода или схемы нет**, поскольку миграция уже могла примениться. Порядок согласованного rollback описан в разделе 8. Не запускайте `down -v` и не удаляйте volumes для устранения ошибки.
+
+Внешний PostgreSQL и дополнительные production override не входят в готовый deploy script: для них нужен отдельно проверенный wrapper, явно задающий все Compose-файлы, `.env.prod` и project, без лабораторных сервисов.
+
 ### 3.4. Проверка после deploy
 
-Проверки API должны выполняться с web-авторизацией. Передавайте пароль через environment, а не аргумент командной строки или историю shell:
+Проверки API должны выполняться с web-авторизацией. Smoke умеет читать web-учётные данные из защищённого env-файла без его выполнения как shell-кода. Проверка через HTTPS reverse proxy:
 
 ```bash
-read -rsp 'Artifact Graph password: ' WEB_PASSWORD; echo
-export WEB_PASSWORD WEB_USERNAME=root
-export GRAPH_URL=https://artifact-graph.example.internal
+GRAPH_URL=https://artifact-graph.example.internal \
+SMOKE_ENV_FILE=/opt/artefact-graph-prod/.env.prod \
+SMOKE_TIMEOUT_SECONDS=900 \
 bash scripts/smoke-linux.sh
-python scripts/validate_live.py \
-  --url "$GRAPH_URL" \
-  --repository java-maven-api
-unset WEB_PASSWORD
 ```
 
 Проверьте также:
@@ -176,7 +185,9 @@ unset WEB_PASSWORD
 - ручной refresh из UI создаёт новый scan, а не 409/ошибку;
 - Prometheus продолжает собирать метрики после смены контейнера.
 
-HTTP 200 от `/health/ready` сам по себе недостаточен: degraded scan со stale-данными считается пригодным для чтения, а при более позднем failed scan readiness может опираться на предыдущий usable scan.
+Для собственного CA добавьте `SMOKE_CA_FILE=/etc/artifact-graph/certs/company-ca.pem` к окружению этой команды; `TLS_CA_FILE` относится к пути внутри контейнера, а не к host curl. Deploy также поддерживает `GRAPH_URL` и `SMOKE_CA_FILE`, поэтому его smoke можно направить через production proxy.
+
+HTTP 200 от `/health/ready` сам по себе недостаточен: degraded scan со stale-данными считается пригодным для чтения, а при более позднем failed scan readiness может опираться на предыдущий usable scan. Smoke дополнительно требует свежий `success` scan и отсутствие stale-узлов; deploy требует scan не старше начала текущего развёртывания. Проверка ожидает непустой граф; только для намеренно пустого сервера допускается `SMOKE_MIN_NODES=0`. `scripts/validate_live.py` проверяет фиксированные лабораторные fixtures и не является production smoke.
 
 ## 4. Мониторинг и алерты
 
@@ -213,7 +224,7 @@ HTTP 200 от `/health/ready` сам по себе недостаточен: deg
 
 ### 4.2. Degraded и stale
 
-При полном отказе upstream и наличии предыдущего графа сервис сохраняет карту доступной, помечает старые узлы `stale=true` и завершает scan со статусом `degraded`. При частичном отказе чтения build log/artifacts stale могут быть только затронутые build-ы. UI показывает stale banner и причину без токенов.
+При полном отказе upstream и наличии предыдущего графа сервис сохраняет карту доступной, помечает старые узлы `stale=true` и завершает scan со статусом `degraded`. При частичном отказе чтения build log/artifacts stale могут быть только затронутые build-ы. Ошибки сбора исходников и сопоставления также делают scan `degraded`, даже если предыдущей копии сущности ещё нет: проверяйте `collectionError`, `mappingUnavailable` и `incompleteEntities`. UI показывает stale banner и причину без токенов.
 
 Учитывайте два важных свойства:
 
@@ -232,8 +243,8 @@ HTTP 200 от `/health/ready` сам по себе недостаточен: deg
 4. Проверьте рестарты и логи без вывода переменных окружения:
 
    ```bash
-   docker compose ps graph
-   docker compose logs --since 30m graph
+   pcompose ps graph
+   pcompose logs --since 30m graph
    ```
 
 5. Проверьте DNS, маршрут, proxy/firewall, срок сертификата и доверие CA из той же Docker network.
@@ -247,7 +258,7 @@ HTTP 200 от `/health/ready` сам по себе недостаточен: deg
 - `404`: изменился base URL, workspace/project/build type удалён либо endpoint скрыт reverse proxy. Сопоставьте endpoint из диагностики с конфигурацией.
 - `429`: превышен rate limit. Не увеличивайте агрессивно retry; сократите частоту scan (`REFRESH_MINUTES`) или согласуйте лимит provider.
 - `5xx`, timeout, connection reset: проверьте provider health, route, DNS и proxy. Сервис сам повторяет временные ошибки согласно `API_RETRY_ATTEMPTS` и backoff.
-- TLS error: проверьте CA bundle, hostname/SAN и часы. Не устраняйте production-инцидент постоянным `VERIFY_TLS=false`.
+- TLS error: проверьте CA bundle, hostname/SAN и часы; для корпоративного CA проверьте `TLS_CA_HOST_DIR`, контейнерный `TLS_CA_FILE` и доступ к файлу для UID `10001`. Не устраняйте production-инцидент отключением `VERIFY_TLS`.
 - Registry/Nexus: проверьте Registry API v2 endpoint, repository routing и read permission manifest-ов. Ошибка registry может проявляться как `registryStatus=unavailable` для образа, не обязательно как полный отказ карты.
 - TeamCity artifacts/build log: затронутый build может сохранить предыдущее содержимое как stale. Проверьте права чтения артефактов и логов отдельно от прав чтения build configuration.
 
@@ -262,10 +273,10 @@ Webhook-и создаются для `scan.degraded`, `scan.recovered` и `graph
 Диагностика очереди:
 
 ```bash
-docker compose exec -T postgres psql -U graph -d graph -v ON_ERROR_STOP=1 -c \
+pcompose exec -T postgres psql -U graph -d graph -v ON_ERROR_STOP=1 -c \
   "SELECT status, count(*) FROM webhook_deliveries GROUP BY status ORDER BY status;"
 
-docker compose exec -T postgres psql -U graph -d graph -v ON_ERROR_STOP=1 -c \
+pcompose exec -T postgres psql -U graph -d graph -v ON_ERROR_STOP=1 -c \
   "SELECT id, event_type, event_key, attempts, next_attempt_at, last_status \
      FROM webhook_deliveries \
     WHERE status IN ('pending','dead') \
@@ -301,22 +312,22 @@ docker compose exec -T postgres psql -U graph -d graph -v ON_ERROR_STOP=1 -c \
 Обязательный набор:
 
 - PostgreSQL database `graph` — узлы, связи, scan history, snapshots, persistent cache и webhook outbox;
-- `config/mapping-rules.yaml`;
-- production Compose/override и идентификатор образа/Git SHA;
-- секреты и `.env` — отдельно, в зашифрованном secret backup, не рядом с database dump;
+- файл из `MAPPING_RULES_HOST_PATH`;
+- `compose.prod.yaml`, дополнительные проверенные override (если есть) и идентификатор образа/Git SHA;
+- секреты и `.env.prod` — отдельно, в зашифрованном secret backup, не рядом с database dump;
 - CA certificates и конфигурация reverse proxy.
 
-`scripts/backup.sh` создаёт PostgreSQL custom-format dump, `<dump>.sha256` и `<dump>.json` с версией и временем. SHA-256 защищает от случайного повреждения, но не от умышленной подмены; храните dump, checksum и manifest в защищённом immutable/off-host хранилище с шифрованием и контролем доступа. У outbox пока нет встроенной очистки отправленных/dead записей, поэтому следите за размером `webhook_deliveries` и выполняйте согласованную retention-очистку только после backup.
+`scripts/backup.sh --prod` создаёт PostgreSQL custom-format dump, `<dump>.sha256` и `<dump>.json` с версией, временем, режимом и Compose project. Без явного пути production backup сохраняется в `backups/prod/`; существующий bundle не перезаписывается. SHA-256 защищает от случайного повреждения, но не от умышленной подмены; храните dump, checksum и manifest в защищённом immutable/off-host хранилище с шифрованием и контролем доступа. У outbox пока нет встроенной очистки отправленных/dead записей, поэтому следите за размером `webhook_deliveries` и выполняйте согласованную retention-очистку только после backup.
 
 Определите RPO/RTO, частоту и retention политикой эксплуатации. Практический минимум — ежедневный backup, отдельный pre-deploy backup и регулярная копия вне Docker host. Следите, чтобы каталог `backups/` не был единственным местом хранения: он исключён из Git, но остаётся на том же диске.
 
 ### 7.2. Проверка backup
 
 ```bash
-bash scripts/verify-backup.sh backups/artifact-graph-YYYYmmddTHHMMSSZ.dump
+bash scripts/verify-backup.sh --prod backups/prod/artifact-graph-YYYYmmddTHHMMSSZ.dump
 ```
 
-Скрипт проверяет checksum, восстанавливает dump во временную базу `graph_verify_<pid>` на том же Compose PostgreSQL и выводит количество строк в основных таблицах. Он не завершает проверку ошибкой при нулевых counts, поэтому оператор должен сравнить их с ожидаемой baseline. Для production этого недостаточно как единственной проверки. Регулярно выполняйте disaster-recovery rehearsal в изолированном PostgreSQL:
+Скрипт проверяет checksum именно выбранного dump, восстанавливает его во временную базу `graph_verify_<random>_<pid>` на том же Compose PostgreSQL и выводит количество строк в основных таблицах; рабочая база `graph` не заменяется. Восстановление создаёт нагрузку на production PostgreSQL: планируйте его в допустимое окно. Скрипт не завершает проверку ошибкой при нулевых counts, поэтому оператор должен сравнить их с ожидаемой baseline. Для production этого недостаточно как единственной проверки. Регулярно выполняйте disaster-recovery rehearsal в изолированном PostgreSQL:
 
 1. восстановите database dump;
 2. восстановите mapping rules и production config без production-секретов;
@@ -334,29 +345,30 @@ bash scripts/verify-backup.sh backups/artifact-graph-YYYYmmddTHHMMSSZ.dump
 
 1. объявите maintenance window и остановите внешние изменения;
 2. сохраните аварийный dump текущей базы, если она читается;
-3. проверьте `.sha256` и manifest;
+3. проверьте `.sha256` и manifest, включая `mode`/`project` и источник данных: checksum не доказывает, что выбран backup нужного окружения;
 4. подтвердите совместимость backup schema с выбранной версией приложения;
-5. убедитесь, что отдельно доступны production `.env`, mapping rules и CA.
+5. убедитесь, что отдельно доступны production `.env.prod`, mapping rules и CA, а выбран именно project `artefact-graph-prod`, не lab;
+6. подтвердите, что потеря изменений после момента backup допустима. Restore заменяет данные текущей production-базы, а не создаёт дополнительную копию.
 
 ```bash
-bash scripts/restore.sh \
-  backups/artifact-graph-YYYYmmddTHHMMSSZ.dump \
+bash scripts/restore.sh --prod \
+  backups/prod/artifact-graph-YYYYmmddTHHMMSSZ.dump \
   --confirm
 ```
 
 После restore контейнер снова выполнит `alembic upgrade head`. Проверьте:
 
 ```bash
-docker compose exec -T graph alembic current
-docker compose ps graph postgres
-docker compose logs --since 15m graph
+pcompose exec -T graph alembic current
+pcompose ps graph postgres
+pcompose logs --since 15m graph
 ```
 
-Затем выполните полный authenticated smoke, проверьте `/api/status`, поиск репозитория, snapshots и webhook queue. Restore базы не восстанавливает `.env`, mapping rules, reverse proxy или внешние Bitbucket/TeamCity/Registry.
+Затем выполните полный authenticated smoke, проверьте `/api/status`, поиск репозитория, snapshots и webhook queue. Restore базы не восстанавливает `.env.prod`, mapping rules, reverse proxy или внешние Bitbucket/TeamCity/Registry.
 
 ## 8. Rollback и совместимость схемы
 
-Автоматический rollback в `scripts/deploy.sh` возвращает checkout и образ приложения на предыдущий commit, но оставляет базу на уже применённой Alembic revision. Поэтому успешный rollback кода не доказывает совместимость старого кода с новой схемой.
+Автоматический rollback в `scripts/deploy.sh` отключён. Ошибка запуска или smoke оставляет текущий checkout, контейнеры и volume для диагностики: схема уже могла измениться. Перед ручным откатом определите фактически применённую Alembic revision и совместимость старого кода с ней; один лишь возврат прежнего образа не восстанавливает базу.
 
 Перед релизом классифицируйте миграцию:
 
@@ -369,7 +381,7 @@ docker compose logs --since 15m graph
 1. явный `alembic downgrade <revision>` с одобренным планом сохранения данных; либо
 2. восстановление pre-deploy dump и предыдущей версии приложения, принимая потерю данных после момента backup.
 
-Никогда не запускайте downgrade вслепую в production. Все текущие migration-файлы имеют функцию `downgrade`, но наличие функции не гарантирует сохранение данных. После аварийного rollback восстановите нормальную ветку checkout: deploy script оставляет detached HEAD на предыдущем SHA.
+Никогда не запускайте downgrade вслепую в production. Все текущие migration-файлы имеют функцию `downgrade`, но наличие функции не гарантирует сохранение данных. Для возврата на конкретный проверенный релиз используйте согласованную процедуру с закреплённым образом/Git SHA, не обычный повторный deploy: он делает `git pull --ff-only` текущей ветки. Если ручной rollback оставил checkout в detached HEAD, до следующего штатного deploy восстановите нужную tracking-ветку без уничтожения локальных изменений.
 
 ## 9. Ротация секретов и сессий
 
@@ -378,11 +390,11 @@ docker compose logs --since 15m graph
 Ротируйте по одному provider за раз:
 
 1. выпустите новый read-only токен с теми же минимальными правами;
-2. обновите защищённый `.env`/secret source;
+2. обновите защищённый `.env.prod`/secret source;
 3. пересоздайте только `graph`:
 
    ```bash
-   docker compose up -d --no-deps --force-recreate graph
+   pcompose up -d --no-deps --force-recreate graph
    ```
 
 4. дождитесь `success` scan и проверьте данные этого provider;
@@ -416,7 +428,7 @@ Pending payload подписывается в момент каждой отпр
 
 ### 9.4. PostgreSQL
 
-Ротация пароля PostgreSQL должна быть согласованной между database role и `DATABASE_URL`. Сначала проверьте новый credential на отдельном соединении, затем обновите приложение и пересоздайте `graph`; не оставляйте hardcoded `graph:graph`. При недоступности базы readiness станет 503, а приложение не сможет сохранять scan/outbox.
+Ротация пароля PostgreSQL должна быть согласованной между database role и `POSTGRES_PASSWORD` в `.env.prod`, из которого Compose строит `DATABASE_URL`. Для существующего volume простое изменение env и пересоздание `postgres` **не меняет пароль роли в базе**: `POSTGRES_PASSWORD` используется образом PostgreSQL при первоначальной инициализации. Измените пароль роли защищённым административным SQL-каналом в согласованное окно, проверьте новый credential на отдельном соединении, затем обновите `.env.prod` и пересоздайте `graph`. Не удаляйте volume для смены пароля. При недоступности базы readiness станет 503, а приложение не сможет сохранять scan/outbox.
 
 ## 10. Завершение инцидента или изменения
 
