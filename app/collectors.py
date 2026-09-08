@@ -2,6 +2,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
+from urllib.parse import quote
 
 import httpx
 
@@ -22,6 +23,7 @@ class Repository:
     default_branch: str = "main"
     active: bool = True
     revision: str = ""
+    source_available: bool = True
 
 
 class RepositoryProvider(Protocol):
@@ -82,27 +84,56 @@ class BitbucketDataCenterCollector(ApiClient):
             for repo in page.get("values", []):
                 project = repo["project"]
                 links = repo.get("links", {})
+                branch, revision = await self.default_revision(project["key"], repo["slug"])
                 yield Repository(
                     provider="bitbucket_dc", namespace=project["key"],
                     project_key=project["key"], project_name=project["name"],
                     slug=repo["slug"], name=repo["name"],
                     web_url=_first_href(links.get("self")),
                     clone_urls=tuple(x["href"] for x in links.get("clone", [])),
-                    default_branch=((repo.get("defaultBranch") or {}).get("displayId") if isinstance(repo.get("defaultBranch"), dict) else repo.get("defaultBranch") or "main").removeprefix("refs/heads/"),
+                    default_branch=branch,
                     active=not repo.get("archived", False),
-                    revision=(repo.get("defaultBranch") or {}).get("latestCommit", "") if isinstance(repo.get("defaultBranch"), dict) else "",
+                    revision=revision, source_available=bool(revision),
                 )
             if page.get("isLastPage", True):
                 break
-            start = page["nextPageStart"]
+            next_start = page["nextPageStart"]
+            if not isinstance(next_start, int) or next_start <= start:
+                raise ValueError("Bitbucket repository pagination did not advance")
+            start = next_start
+
+    async def default_revision(self, project_key: str, slug: str) -> tuple[str, str]:
+        base = f"/rest/api/1.0/projects/{quote(project_key, safe='')}/repos/{quote(slug, safe='')}"
+        configured = await self.get_json(f"{base}/default-branch")
+        branch_id = configured.get("id") or ""
+        if not branch_id.startswith("refs/heads/"):
+            raise ValueError("Bitbucket default branch response lacks a refs/heads/ ID")
+        branch = branch_id.removeprefix("refs/heads/")
+        start = 0
+        while True:
+            page = await self.get_json(f"{base}/branches", filterText=branch, limit=100, start=start)
+            for item in page.get("values", []):
+                if item.get("id") == branch_id:
+                    if not item.get("latestCommit"):
+                        raise ValueError("Bitbucket branch response lacks a commit ID")
+                    return branch, item["latestCommit"]
+            if page.get("isLastPage", True):
+                # Empty repository or configured default branch not yet pushed.
+                return branch, ""
+            next_start = page["nextPageStart"]
+            if not isinstance(next_start, int) or next_start <= start:
+                raise ValueError("Bitbucket branch pagination did not advance")
+            start = next_start
 
     async def file_text(self, repository, path, revision=None):
-        at = revision or f"refs/heads/{repository.default_branch}"
+        if not repository.source_available and not revision:
+            return None
+        at = revision or repository.revision or f"refs/heads/{repository.default_branch}"
         cache_key = (repository.project_key, repository.slug, path, at)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]
         response = await self.client.get(
-            f"/rest/api/1.0/projects/{repository.project_key}/repos/{repository.slug}/raw/{path}",
+            f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}/raw/{quote(path, safe='/')}",
             params={"at": at},
         )
         if response.status_code == 404:
@@ -143,7 +174,7 @@ class BitbucketCloudCollector(ApiClient):
             next_url = page.get("next")
 
     async def file_text(self, repository, path, revision=None):
-        revision = revision or repository.default_branch
+        revision = revision or repository.revision or repository.default_branch
         cache_key = (repository.slug, path, revision)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]

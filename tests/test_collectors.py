@@ -25,11 +25,19 @@ async def test_datacenter_maps_api_response_to_same_contract():
         "links": {"self": [{"href": "http://bb/projects/DEMO/repos/api"}], "clone": [{"href": "http://bb/scm/demo/api.git"}]}}], "isLastPage": True}
     collector = BitbucketDataCenterCollector("http://bb", "token")
     await collector.client.aclose()
-    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)), base_url="http://bb")
+    def handler(request):
+        if request.url.path.endswith("/default-branch"):
+            return httpx.Response(200, json={"id": "refs/heads/develop"})
+        if request.url.path.endswith("/branches"):
+            return httpx.Response(200, json={"values": [{"id": "refs/heads/develop", "latestCommit": "abc123"}]})
+        return httpx.Response(200, json=payload)
+    collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://bb")
     repos = [repo async for repo in collector.repositories()]
     await collector.close()
     assert repos[0].slug == "api"
     assert repos[0].provider == "bitbucket_dc"
+    assert repos[0].default_branch == "develop"
+    assert repos[0].revision == "abc123"
 
 
 @pytest.mark.asyncio

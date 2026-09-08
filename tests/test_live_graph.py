@@ -131,3 +131,52 @@ def test_demo_dataset_has_full_ten_repo_five_build_fixture():
     assert len([node for node in nodes if node["kind"] == "build"]) == 90
     assert len([edge for edge in edges if edge["relation"] == "ran_as"]) == 90
     assert not any(edge["relation"] in {"snapshot_depends_on", "uses_artifacts_from"} for edge in edges)
+
+
+@pytest.mark.asyncio
+async def test_source_cache_invalidates_on_revision_and_dc_server_change(monkeypatch):
+    from dataclasses import replace
+    class VersionedBB(FakeBitbucket):
+        revision = "a" * 40
+        reads = 0
+        async def repositories(self):
+            async for repo in super().repositories():
+                yield replace(repo, provider="bitbucket_dc", revision=self.revision)
+        async def file_text(self, repo, path, revision=None):
+            type(self).reads += 1
+            return await super().file_text(repo, path, revision)
+    monkeypatch.setattr(service.settings, "bitbucket_provider", "datacenter")
+    monkeypatch.setattr(service.settings, "bitbucket_url", "https://dc-one")
+    monkeypatch.setattr(service, "repository_provider", VersionedBB)
+    monkeypatch.setattr(service, "TeamCityCollector", FakeTeamCity)
+    await service.collect_live()
+    reads = VersionedBB.reads
+    assert reads > 0
+    await service.collect_live()
+    assert VersionedBB.reads == reads
+    VersionedBB.revision = "b" * 40
+    await service.collect_live()
+    assert VersionedBB.reads == reads * 2
+    # A restarted collector must also miss a persistent cache from another DC.
+    service.source_cache.clear()
+    monkeypatch.setattr(service.settings, "bitbucket_url", "https://dc-two")
+    await service.collect_live()
+    assert VersionedBB.reads == reads * 3
+
+
+@pytest.mark.asyncio
+async def test_build_cache_is_scoped_to_teamcity_instance(monkeypatch):
+    class CountingTC(FakeTeamCity):
+        reads = 0
+        async def build_log(self, build_id):
+            type(self).reads += 1
+            return await super().build_log(build_id)
+    monkeypatch.setattr(service, "repository_provider", FakeBitbucket)
+    monkeypatch.setattr(service, "TeamCityCollector", CountingTC)
+    monkeypatch.setattr(service.settings, "teamcity_url", "https://tc-one")
+    await service.collect_live()
+    await service.collect_live()
+    assert CountingTC.reads == 1
+    monkeypatch.setattr(service.settings, "teamcity_url", "https://tc-two")
+    await service.collect_live()
+    assert CountingTC.reads == 2

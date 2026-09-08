@@ -137,7 +137,7 @@ async def collect_live():
         async for repo in bb.repositories():
             pid = f"bb-project:{repo.namespace}/{repo.project_key}"
             rid = f"repo:{repo.namespace}/{repo.slug}"
-            nodes.append({"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider, "active": repo.active})
+            nodes.append({"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider, "active": repo.active, "defaultBranch": repo.default_branch, "revision": repo.revision, "sourceAvailable": repo.source_available})
             if repo.project_key != "UNASSIGNED":
                 nodes.append({"id": pid, "kind": "bb_project", "label": repo.project_name, "provider": repo.provider, "active": repo.active})
                 edges.append({"source": pid, "target": rid, "relation": "contains"})
@@ -193,13 +193,15 @@ async def collect_live():
                 scripts.extend(resolve_teamcity_parameters(v, parameters) for k, v in props.items() if "script" in k.lower())
                 build_files.extend(build_source_paths(step.get("type", ""), props))
             source_key = (
-                tuple(sorted((repo.provider, repo.namespace, repo.slug, repo.revision) for repo in linked_repositories)),
+                "source-v2", settings.bitbucket_url.rstrip("/") if settings.bitbucket_provider == "datacenter" else "https://api.bitbucket.org/2.0",
+                tuple(sorted((repo.provider, repo.namespace, repo.project_key, repo.slug, repo.default_branch, repo.revision) for repo in linked_repositories)),
                 tuple(sorted(scripts)), tuple(sorted(build_files)),
             )
-            sources = source_cache.get(source_key)
+            cacheable = all(repo.revision for repo in linked_repositories)
+            sources = source_cache.get(source_key) if cacheable else None
             if sources is None:
                 persistent = _persistent("source")
-                stored = persistent.get(source_key)
+                stored = persistent.get(source_key) if cacheable else None
                 if stored is not None:
                     sources = [ScriptSource(**item) for item in stored]
                     source_cache.put(source_key, sources)
@@ -210,7 +212,7 @@ async def collect_live():
                     except httpx.HTTPError:
                         sources = []
                         source_complete = False
-                    if source_complete and all(repo.revision for repo in linked_repositories):
+                    if source_complete and cacheable:
                         source_cache.put(source_key, sources)
                         persistent.put(source_key, [{"path": item.path, "text": item.text} for item in sources])
             pushed_images = []
@@ -224,14 +226,14 @@ async def collect_live():
             sbom_rule = artifact_rules if publishes_sbom(artifact_rules) else ""
             for build in await tc.builds(detail["id"]):
                 finished = build.get("state", "finished") == "finished"
-                cached = build_input_cache.get(str(build["id"])) if finished else None
                 persistent_build = _persistent("build")
-                build_key = (settings.teamcity_url.rstrip("/"), str(build["id"]), build.get("finishDate"))
+                build_key = ("build-v2", settings.teamcity_url.rstrip("/"), settings.teamcity_public_url.rstrip("/"), str(build["id"]), build.get("finishDate"))
+                cached = build_input_cache.get(build_key) if finished else None
                 if cached is None and finished:
                     stored = persistent_build.get(build_key)
                     cached = (stored["artifacts"], stored["buildLog"]) if stored is not None else None
                     if cached is not None:
-                        build_input_cache.put(str(build["id"]), cached)
+                        build_input_cache.put(build_key, cached)
                 if cached is not None:
                     artifacts, build_log = cached
                 else:
@@ -247,7 +249,7 @@ async def collect_live():
                                 artifact["artifactRule"] = sbom_rule
                         build_log = await tc.build_log(build["id"]) if finished else ""
                         if finished:
-                            build_input_cache.put(str(build["id"]), (artifacts, build_log))
+                            build_input_cache.put(build_key, (artifacts, build_log))
                             persistent_build.put(build_key, {"artifacts": artifacts, "buildLog": build_log})
                     except httpx.HTTPError as exc:
                         artifacts, build_log = [], ""
