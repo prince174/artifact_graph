@@ -123,3 +123,20 @@ def test_server_pagination_controls_and_full_project_options_are_used():
     assert "currentCursor" in PAGE and "nextCursor" in PAGE
     assert "fetch('/api/options')" in PAGE
     assert "function nextPage" in PAGE and "function previousPage" in PAGE
+
+
+def test_push_sources_are_summarized_in_both_hover_and_visible_details():
+    assert "sources=briefSources(d.pushedImages||[])" in PAGE
+    assert "sources=briefSources(pushes)" in PAGE
+    assert "field('Источники команд',sources)" in PAGE
+    assert "Array.isArray(item.sourcePaths)" in PAGE
+    assert "paths.slice(0,3)" in PAGE
+    assert "const chars=Array.from(path)" in PAGE
+    assert "return esc(chars.length>120?" in PAGE
+
+
+def test_failed_and_incomplete_build_colors_take_priority_over_outputs():
+    output_rule = PAGE.index('node[kind = "build"][?hasSbom][?hasImagePush]')
+    failed_rule = PAGE.index('node[kind = "build"][status = "FAILURE"]')
+    running_rule = PAGE.index('node[kind = "build"][state = "running"]')
+    assert output_rule < failed_rule < running_rule
