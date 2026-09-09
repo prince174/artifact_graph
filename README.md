@@ -3,7 +3,8 @@
 Python-сервис строит интерактивный граф `Bitbucket project/repository → TeamCity project/build configuration → build`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
 script steps и связанных исходниках (в том числе `pom.xml`), правило `**/sbom.json => artifacts`
-и последние запуски каждой конфигурации: 3 в lab, 5 в prod (`TEAMCITY_BUILD_LIMIT`).
+и последние запуски каждой конфигурации (`TEAMCITY_BUILD_LIMIT`): 3 по умолчанию в lab,
+5 для расширенной приёмочной матрицы и в prod.
 Push и SBOM отражаются цветом и деталями соответствующего build, без отдельных узлов на карте.
 
 Bitbucket подключается через общий контракт `RepositoryProvider`. Поддерживаются адаптеры
@@ -53,6 +54,16 @@ docker compose --profile build-lab up -d --build postgres graph teamcity teamcit
 1. Завершите бесплатную настройку TeamCity Professional на `http://localhost:8111`.
 2. Создайте Cloud workspace и тестовые репозитории.
 3. Скопируйте `.env.example` в `.env`, запишите read-only токены, смените `APP_MODE=live` и перезапустите `graph`.
+
+Для расширения уже существующего Cloud-стенда используйте [приёмочную матрицу lab](docs/lab-acceptance.md).
+Она добавляет 10 BB-проектов, 11 репозиториев и 16 TC-конфигураций, не удаляя исходные данные:
+реальный push из Maven `pom.xml`, два Docker-тега, нативный Podman, несколько SBOM,
+общий TC-проект, multi-root checkout, отрицательные сценарии и границы поиска 10/10.
+В инструкции отдельно описаны создание (`expand_lab.py`), запуск билдов (`run_lab.py`),
+RO-проверка результата (`validate_lab.py`), временные running/queued/paused-состояния и браузерные тесты.
+Изменяющие стенд команды требуют явного `--apply`; они не предназначены для production.
+Ротация checkout-токена выполняется отдельно: изменение `.env` не заменяет секреты существующих
+TC VCS roots; безопасная ручная процедура приведена в той же инструкции.
 
 Локальный Bitbucket Data Center сохранён только как необязательный профиль и по умолчанию не запускается:
 
@@ -370,11 +381,16 @@ pytest
 ```
 
 Pytest enforces at least 75% line coverage for the application package. To validate
-the running ten-repository fixture, including node counts and repository search:
+the original ten-repository fixture, including node counts and repository search:
 
 ```bash
 python scripts/validate_live.py --url http://localhost:18081 --repository java-maven-api
 ```
+
+Для расширенного стенда вместо проверки фиксированного количества узлов исходного demo
+запускайте `scripts/validate_lab.py`; подготовка данных, команды и критерии успеха приведены
+в [docs/lab-acceptance.md](docs/lab-acceptance.md). Live-браузерные проверки включаются только
+через `E2E_LAB_MATRIX=1`; обычный изолированный E2E-прогон не обращается к Cloud/TC.
 
 При включённой web-авторизации передайте `WEB_USERNAME` и `WEB_PASSWORD` через environment.
 Изолированный браузерный E2E-прогон использует Chromium и чистую временную PostgreSQL:
