@@ -53,6 +53,7 @@ class Lab:
         self.queue_response = None
         self.foreign_build = False
         self.cancel_race = False
+        self.queue_returns_all_states = False
 
     @property
     def writes(self):
@@ -150,7 +151,7 @@ class Lab:
                 assert not in_queue and json.loads(request.content)["readdIntoQueue"] is False
                 self.builds[identity] = "finished"
                 return httpx.Response(200, json={})
-            if (in_queue and state != "queued") or state == "removed":
+            if (in_queue and state != "queued" and not self.queue_returns_all_states) or state == "removed":
                 return httpx.Response(404)
             return httpx.Response(200, json={"id": identity, "state": state, "buildTypeId": "Demo_Foreign" if self.foreign_build else checker.ACTIVE})
         raise AssertionError(f"Unexpected request {request.method} {path}")
@@ -253,6 +254,49 @@ def test_queue_cancellation_race_cancels_only_the_same_created_id(lab):
     assert lab.builds == {101: "finished", 102: "finished"}
     cancellations = [request.url.path for request in lab.writes if request.method == "DELETE" or request.url.path.startswith("/app/rest/builds/id:")]
     assert cancellations == ["/app/rest/buildQueue/id:102", "/app/rest/builds/id:102", "/app/rest/builds/id:101"]
+
+
+def test_queue_endpoint_resolves_running_and_finished_during_full_check(lab):
+    lab.queue_returns_all_states = True
+    report = run(lab, apply=True)
+    assert report["verified"] and report["cleanup"] == "completed"
+    assert lab.builds == {101: "finished", 102: "removed"}
+    assert not any(request.method == "DELETE" and request.url.path == "/app/rest/buildQueue/id:101" for request in lab.writes)
+    restored(lab)
+
+
+def test_cancel_race_uses_running_state_returned_by_queue_endpoint(lab):
+    lab.queue_returns_all_states = True
+    lab.cancel_race = True
+    assert run(lab, apply=True)["verified"]
+    assert lab.builds == {101: "finished", 102: "finished"}
+    cancellations = [request.url.path for request in lab.writes if request.method == "DELETE" or request.url.path.startswith("/app/rest/builds/id:")]
+    assert cancellations == ["/app/rest/buildQueue/id:102", "/app/rest/builds/id:102", "/app/rest/builds/id:101"]
+
+
+def test_finished_build_resolved_by_queue_endpoint_is_not_cancelled(lab):
+    lab.queue_returns_all_states = True
+    lab.queued = [101]
+    lab.builds[101] = "finished"
+    with httpx.Client(base_url="http://teamcity:8111", transport=httpx.MockTransport(lab)) as tc:
+        assert checker._state(tc, 101)["state"] == "finished"
+        checker._cancel_created(tc, 101, 2, 1)
+    assert not lab.writes
+
+
+@pytest.mark.parametrize("state", [None, "", "removed", "unknown", False, {}, []])
+@pytest.mark.parametrize("queue_resolves", [False, True])
+def test_invalid_state_from_either_endpoint_is_never_used_for_cleanup(state, queue_resolves):
+    calls = []
+    def handle(request):
+        calls.append(request)
+        if "/buildQueue/" in request.url.path and not queue_resolves:
+            return httpx.Response(404)
+        return httpx.Response(200, json={"id": 101, "buildTypeId": checker.ACTIVE, "state": state})
+    with httpx.Client(base_url="http://teamcity:8111", transport=httpx.MockTransport(handle)) as tc:
+        with pytest.raises(checker.StateCheckError, match="invalid state"):
+            checker._cancel_created(tc, 101, 2, 1)
+    assert all(request.method == "GET" for request in calls)
 
 
 def test_foreign_build_response_is_never_cancelled(lab):

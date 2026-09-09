@@ -70,11 +70,17 @@ def _state(tc, build_id):
     fields = {"fields": "id,buildTypeId,state,status"}
     queued = _call(tc, "GET", f"/app/rest/buildQueue/id:{build_id}", missing=True, params=fields)
     if queued is not None:
-        current = {**_json(queued), "state": "queued"}
+        # TeamCity can still resolve a queue locator after the build starts or
+        # finishes. The response state, not the endpoint, is authoritative.
+        current = _json(queued)
     else:
         build = _call(tc, "GET", f"/app/rest/builds/id:{build_id}", missing=True, params=fields)
-        current = _json(build) if build is not None else {"id": build_id, "state": "removed"}
-    if current["state"] != "removed" and (str(current.get("id")) != str(build_id) or current.get("buildTypeId") != ACTIVE):
+        if build is None:
+            return {"id": build_id, "state": "removed"}
+        current = _json(build)
+    if not isinstance(current, dict) or current.get("state") not in ("queued", "running", "finished"):
+        raise StateCheckError(f"Build {build_id} returned an invalid state; refusing changes")
+    if str(current.get("id")) != str(build_id) or current.get("buildTypeId") != ACTIVE:
         raise StateCheckError(f"Build {build_id} no longer belongs to the temporary fixture; refusing changes")
     return current
 
