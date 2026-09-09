@@ -149,6 +149,7 @@ def test_apply_is_additive_nonmain_branch_secure_checkout_and_idempotent(plan):
     lab = FakeLab(plan)
     first = lab.provision(apply=True)
     assert first["newConfigurations"] == 2
+    assert first["existingCheckoutTokensUnchanged"] == [] and not first.get("warnings")
     assert lab.entities["/repositories/artifact_graph/lab-app"]["mainbranch"] == {"name": "develop"}
     assert lab.entities["/workspaces/artifact_graph/projects/DEMO"]["description"] == "foreign baseline"
     assert not any(method == "DELETE" or "/Demo" in path or "/agents" in path or path == "/app/rest/buildQueue" for method, path, _, _ in lab.writes())
@@ -163,7 +164,49 @@ def test_apply_is_additive_nonmain_branch_secure_checkout_and_idempotent(plan):
     second = lab.provision(apply=True)
     assert second["newConfigurations"] == second["newRepositories"] == second["newProjects"] == 0
     assert second["configure"] == []
+    assert second["existingCheckoutTokensUnchanged"] == ["LabMatrix_Vcs_lab_app"]
+    assert second["warnings"]
     assert all("/roles/PROJECT_VIEWER/p:LabMatrix" in path for _, path, _, _ in lab.writes())
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_changed_env_checkout_token_warns_existing_root_is_not_rotated(plan, apply):
+    lab = FakeLab(plan)
+    lab.provision(apply=True)
+    lab.calls.clear()
+    report = lab.provision(apply=apply, checkout_token="rotated-checkout-secret")
+    assert report["existingCheckoutTokensUnchanged"] == ["LabMatrix_Vcs_lab_app"]
+    assert "not updated" in report["warnings"][0]
+    assert module._props(lab.entities["/app/rest/vcs-roots/id:LabMatrix_Vcs_lab_app"])["secure:password"] == "checkout-ro-secret"
+    assert all("/vcs-roots" not in path for _, path, _, _ in lab.writes())
+    assert "rotated-checkout-secret" not in json.dumps(report) and "checkout-ro-secret" not in json.dumps(report)
+
+
+def test_disabled_runner_is_detected_in_plan_and_reconciled_only_on_apply(plan):
+    lab = FakeLab(plan)
+    lab.provision(apply=True)
+    identity = "LabMatrix_App_Test"
+    config = lab.entities[f"/app/rest/buildTypes/id:{identity}"]
+    config["steps"]["step"][0]["disabled"] = True
+    lab.calls.clear()
+    report = lab.provision()
+    assert report["configure"] == [identity] and config["steps"]["step"][0]["disabled"] is True
+    assert not lab.writes()
+    detail_calls = [params for method, path, _, params in lab.calls if method == "GET" and "/buildTypes/id:" in path]
+    assert detail_calls and all("step(type,disabled," in params["fields"] for params in detail_calls)
+    report = lab.provision(apply=True)
+    assert report["configure"] == [identity] and not config["steps"]["step"][0].get("disabled")
+
+
+def test_disabled_runner_with_active_builds_cannot_be_reconciled(plan):
+    lab = FakeLab(plan)
+    lab.provision(apply=True)
+    lab.entities["/app/rest/buildTypes/id:LabMatrix_App_Test"]["steps"]["step"][0]["disabled"] = True
+    lab.active_count = 1
+    lab.calls.clear()
+    with pytest.raises(module.ProvisionError, match="active builds"):
+        lab.provision(apply=True)
+    assert not lab.writes()
 
 
 def test_project_creation_persists_ownership_through_scalar_endpoint(plan):

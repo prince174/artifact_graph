@@ -182,7 +182,7 @@ def _entries(config):
 
 def _config_matches(existing, config):
     steps = existing.get("steps", {}).get("step", [])
-    if len(steps) != 1 or steps[0].get("type") != "simpleRunner" or _props(steps[0]).get("script.content") != config["script"] or _props(steps[0]).get("use.custom.script") != "true":
+    if len(steps) != 1 or steps[0].get("disabled") or steps[0].get("type") != "simpleRunner" or _props(steps[0]).get("script.content") != config["script"] or _props(steps[0]).get("use.custom.script") != "true":
         return False
     actual_roots = {item.get("vcs-root", {}).get("id", item.get("id")): item.get("checkout-rules", "") for item in existing.get("vcs-root-entries", {}).get("vcs-root-entry", [])}
     expected_roots = {vcs_id(slug): config.get("checkout_rules", {}).get(slug, "") for slug in config["repository_slugs"]}
@@ -267,7 +267,7 @@ def provision_plan(plan, bb, tc, *, workspace, bootstrap_token, checkout_token, 
         state["vcs"][identity] = item
     for config in plan["configs"]:
         item = _json(_call(tc, "GET", f"/app/rest/buildTypes/id:{config['id']}", missing=True,
-                          params={"fields": "id,name,description,projectId,project(id),paused,steps(step(type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(id,checkout-rules,vcs-root(id))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),settings(property(name,value))"}))
+                          params={"fields": "id,name,description,projectId,project(id),paused,steps(step(type,disabled,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(id,checkout-rules,vcs-root(id))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),settings(property(name,value))"}))
         _owned(item, _marker(plan, "config", config["id"], config), config["id"])
         if item and item.get("projectId", item.get("project", {}).get("id")) != config["project_id"]:
             raise ProvisionError(f"Configuration project mismatch for {config['id']}")
@@ -286,7 +286,10 @@ def provision_plan(plan, bb, tc, *, workspace, bootstrap_token, checkout_token, 
               "newRepositories": sum(item["existing"] is None for item in state["repositories"].values()),
               "newTcProjects": sum(item is None for item in state["tc_projects"].values()),
               "newConfigurations": missing_configs,
-              "configure": [identity for identity, value in state["configs"].items() if not value["matches"]]}
+              "configure": [identity for identity, value in state["configs"].items() if not value["matches"]],
+              "existingCheckoutTokensUnchanged": sorted(identity for identity, value in state["vcs"].items() if value is not None)}
+    if report["existingCheckoutTokensUnchanged"]:
+        report["warnings"] = ["Existing TeamCity VCS checkout tokens are not updated by this utility. Rotate their credentials in TeamCity separately; changing the env token only changes the read-access probe."]
     if not apply:
         return report
 

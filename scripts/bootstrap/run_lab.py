@@ -24,7 +24,7 @@ class RunError(RuntimeError):
     """A safe operational error which never includes credentials or response bodies."""
 
 
-DETAIL_FIELDS = "id,name,description,projectId,paused,steps(step(type,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(id,checkout-rules,vcs-root(id))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),settings(property(name,value))"
+DETAIL_FIELDS = "id,name,description,projectId,paused,steps(step(type,disabled,properties(property(name,value)))),vcs-root-entries(vcs-root-entry(id,checkout-rules,vcs-root(id))),snapshot-dependencies(snapshot-dependency(source-buildType(id))),settings(property(name,value))"
 
 
 def request_json(client, method, path, **kwargs):
@@ -151,7 +151,11 @@ def main(argv=None):
     try:
         if not Path(args.env_file).is_file():
             raise RunError("Environment file is missing")
+        if Path(args.env_file).name == ".env.prod":
+            raise RunError("Lab build scheduling cannot use .env.prod")
         values = {**dotenv_values(args.env_file, interpolate=False), **os.environ}
+        if values.get("DEPLOYMENT_MODE") == "production":
+            raise RunError("Lab build scheduling cannot use a production environment")
         token = values.get("TC_ADMIN_TOKEN", "")
         if not token or token.lower().startswith("replace") or any(char in token for char in "\r\n"):
             raise RunError("TC_ADMIN_TOKEN is required; the runtime reader token is never used as fallback")

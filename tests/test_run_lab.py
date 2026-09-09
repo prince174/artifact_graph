@@ -170,6 +170,24 @@ def test_changed_snapshot_dependency_blocks_queueing_parent():
     assert not server.posts
 
 
+@pytest.mark.parametrize("identity", ["LabMatrix_Npm_Test", "LabMatrix_Npm_Build"])
+def test_disabled_step_in_selected_config_or_dependency_blocks_all_queues(identity):
+    server = TeamCity(build_plan("fixture-space"))
+    server.details[identity]["steps"]["step"][0]["disabled"] = True
+    with pytest.raises(runner.RunError, match="mismatch"):
+        run(server, apply=True, config_ids=["LabMatrix_Npm_Build"])
+    assert not server.posts
+    detail_calls = [request for request in server.calls if "/buildTypes/id:" in request.url.path]
+    assert detail_calls and all("step(type,disabled," in request.url.params["fields"] for request in detail_calls)
+
+
+def test_explicitly_enabled_step_is_accepted():
+    identity = "LabMatrix_Npm_Test"
+    server = TeamCity(build_plan("fixture-space"))
+    server.details[identity]["steps"]["step"][0]["disabled"] = False
+    assert run(server, apply=True, config_ids=[identity])["complete"] is True
+
+
 @pytest.mark.parametrize("identity", ["Demo_01_Build", "Unknown", "LabMatrix_Fake"])
 def test_unknown_or_baseline_configuration_never_reaches_teamcity(identity):
     server = TeamCity(build_plan("fixture-space"))
@@ -221,3 +239,19 @@ def test_cli_apply_is_explicit_and_tokens_never_enter_reports(tmp_path, monkeypa
     assert observed == [False, True]
     output = capsys.readouterr()
     assert "admin-secret" not in output.out + output.err
+
+
+@pytest.mark.parametrize("apply", [False, True])
+@pytest.mark.parametrize("source", ["filename", "file_setting", "environment"])
+def test_cli_rejects_production_before_constructing_client(tmp_path, monkeypatch, capsys, apply, source):
+    path = tmp_path / (".env.prod" if source == "filename" else ".env")
+    path.write_text("BITBUCKET_WORKSPACE=fixture-space\nTC_ADMIN_TOKEN=admin-secret\nTEAMCITY_BOOTSTRAP_URL=http://localhost:18111\n" + ("DEPLOYMENT_MODE=production\n" if source == "file_setting" else ""))
+    monkeypatch.delenv("DEPLOYMENT_MODE", raising=False)
+    if source == "environment":
+        monkeypatch.setenv("DEPLOYMENT_MODE", "production")
+    def client_forbidden(*args, **kwargs):
+        pytest.fail("Production rejection must precede HTTP client construction")
+    monkeypatch.setattr(runner.httpx, "Client", client_forbidden)
+    assert runner.main(["--env-file", str(path)] + (["--apply"] if apply else [])) == 1
+    output = capsys.readouterr()
+    assert "cannot use" in output.err and "admin-secret" not in output.err
