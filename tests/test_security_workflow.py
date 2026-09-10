@@ -23,6 +23,7 @@ def test_security_scan_runs_daily_and_on_demand_with_read_only_repository_access
 def test_security_scan_reports_every_finding_but_blocks_only_fixable_highs():
     workflow = load_workflow()
     steps = workflow["jobs"]["container-vulnerabilities"]["steps"]
+    assert steps[0]["uses"] == "actions/checkout@v5"
     scans = [step for step in steps if step.get("uses", "").startswith("aquasecurity/trivy-action@")]
     assert len(scans) == 2
     report, gate = scans
@@ -40,6 +41,6 @@ def test_security_scan_reports_every_finding_but_blocks_only_fixable_highs():
     assert gate["with"]["ignore-unfixed"] == "true"
     assert gate["with"]["exit-code"] == "1"
     assert gate["with"]["severity"] == "CRITICAL,HIGH"
-    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4")
+    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v5")
     assert upload["if"] == "always()"
     assert upload["with"]["retention-days"] == "30"

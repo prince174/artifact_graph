@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build the exact application image
         run: docker build --build-arg GIT_SHA=${{ github.sha }} -t artifact-graph:security-scan .
       - name: Record all High and Critical findings
@@ -42,7 +42,7 @@ jobs:
           output: trivy-fixable-high-critical.txt
       - name: Preserve vulnerability reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: container-vulnerability-reports
           path: trivy-*-high-critical.txt
