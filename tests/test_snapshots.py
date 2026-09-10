@@ -1,6 +1,6 @@
 import json
 
-from app.snapshots import canonical_graph, diff_graphs
+from app.snapshots import canonical_graph, diff_graphs, snapshot_timeline
 
 
 def test_canonical_graph_hash_is_stable_for_input_order():
@@ -23,6 +23,7 @@ def test_diff_reports_added_removed_and_changed_nodes_and_edges():
     assert diff["details"]["added"][0]["id"] == "added"
     assert diff["details"]["removed"][0]["id"] == "gone"
     assert diff["details"]["changed"][0]["before"]["label"] == "old"
+    assert diff["details"]["changed"][0]["fields"] == ["label"]
 
 
 def test_diff_highlights_build_output_changes():
@@ -32,3 +33,18 @@ def test_diff_highlights_build_output_changes():
     assert change["id"] == "build:1"
     assert change["before"]["hasSbom"] is False
     assert change["after"]["pushedImages"] == [{"image": "repo:1"}]
+
+
+def test_snapshot_timeline_summarizes_adjacent_changes_newest_first():
+    rows = [
+        {"id": 2, "scanId": 12, "createdAt": "later", "nodeCount": 2, "edgeCount": 1, "hash": "b", "graph": {"nodes": [{"id": "a", "hasSbom": True}, {"id": "b"}], "edges": [{"source": "a", "target": "b", "relation": "contains"}]}},
+        {"id": 1, "scanId": 11, "createdAt": "earlier", "nodeCount": 1, "edgeCount": 0, "hash": "a", "graph": {"nodes": [{"id": "a", "hasSbom": False}], "edges": []}},
+    ]
+    timeline = snapshot_timeline(rows)
+    assert [entry["id"] for entry in timeline] == [2, 1]
+    assert timeline[0]["previousId"] == 1
+    assert timeline[0]["changes"] == {
+        "nodesAdded": 1, "nodesRemoved": 0, "nodesChanged": 1,
+        "edgesAdded": 1, "edgesRemoved": 0, "edgesChanged": 0, "outputChanges": 1,
+    }
+    assert timeline[1]["previousId"] is None

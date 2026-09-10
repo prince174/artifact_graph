@@ -129,6 +129,16 @@ def test_snapshot_comparison(page: Page, base_url: str, credentials: tuple[str, 
     expect(panel).to_be_visible()
     expect(panel).to_contain_text("#")
 
+    with page.expect_response(lambda response: "/api/timeline?" in response.url) as timeline_response:
+        page.locator("#historyButton").click()
+    assert timeline_response.value.ok
+    expect(panel).to_contain_text("История графа")
+    expect(panel.locator("[data-open-snapshot]").first).to_be_visible()
+    with page.expect_response(lambda response: re.search(r"/api/snapshots/\d+/graph$", response.url)) as graph_response:
+        panel.locator("[data-open-snapshot]").first.click()
+    assert graph_response.value.ok
+    expect(page.locator("#status")).to_contain_text("история · снимок")
+
 
 def test_direct_mutation_without_csrf_is_rejected(page: Page, base_url: str, credentials: tuple[str, str]):
     login(page, base_url, credentials)

@@ -155,3 +155,15 @@ def test_link_insights_and_impact_controls_are_present():
     assert 'id="impactButton"' in PAGE
     assert 'node.impact' in PAGE and 'edge.impact' in PAGE
     assert 'id="clearImpactButton"' in PAGE
+
+
+def test_snapshot_history_can_open_and_compare_historical_graphs():
+    assert 'id="historyButton"' in PAGE
+    assert 'id="liveGraphButton"' in PAGE
+    assert "fetch('/api/timeline?limit=50')" in PAGE
+    assert "function historyRow" in PAGE
+    assert "function loadSnapshot" in PAGE
+    assert "'/graph'" in PAGE
+    assert "data-compare-before" in PAGE
+    assert "d.edges.added.length" in PAGE
+    assert "x.fields.join(', ')" in PAGE

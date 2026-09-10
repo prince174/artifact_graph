@@ -16,7 +16,7 @@ from .web import PAGE
 from .version import __version__
 from .operations import prometheus_metrics, scan_duration_seconds
 from .provider_metrics import provider_metrics
-from .snapshots import diff_graphs
+from .snapshots import diff_graphs, snapshot_timeline
 from .auth import AuthMiddleware, login, login_page, logout_response
 from .mapping_quality import coverage_report
 from .alerts import dispatch_webhooks
@@ -198,6 +198,26 @@ def snapshots(limit: int = 20):
     with SessionLocal() as db:
         rows = db.query(GraphSnapshot).order_by(GraphSnapshot.id.desc()).limit(min(max(limit, 1), 100)).all()
     return [{"id": row.id, "scanId": row.scan_id, "createdAt": row.created_at, "nodeCount": row.node_count, "edgeCount": row.edge_count, "hash": row.content_hash} for row in rows]
+
+
+@app.get("/api/timeline")
+def timeline(limit: int = Query(20, ge=2, le=100)):
+    with SessionLocal() as db:
+        rows = db.query(GraphSnapshot).order_by(GraphSnapshot.id.desc()).limit(limit).all()
+    return snapshot_timeline([
+        {"id": row.id, "scanId": row.scan_id, "createdAt": row.created_at, "nodeCount": row.node_count, "edgeCount": row.edge_count, "hash": row.content_hash, "graph": json.loads(row.payload)}
+        for row in rows
+    ])
+
+
+@app.get("/api/snapshots/{snapshot_id}/graph")
+def snapshot_graph(snapshot_id: int):
+    with SessionLocal() as db:
+        row = db.get(GraphSnapshot, snapshot_id)
+    if not row:
+        raise HTTPException(404, "Snapshot not found")
+    graph = json.loads(row.payload)
+    return {**graph, "positions": layered_positions(graph.get("nodes", []), graph.get("edges", [])), "snapshot": {"id": row.id, "createdAt": row.created_at}}
 
 
 @app.get("/api/snapshots/{before_id}/diff/{after_id}")

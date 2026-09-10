@@ -25,7 +25,10 @@ def diff_graphs(before: dict, after: dict) -> dict:
             "id": key,
             "before": before_nodes[key],
             "after": after_nodes[key],
-            "fields": sorted(set(before_nodes[key]) | set(after_nodes[key]) - {"id"}),
+            "fields": sorted(
+                field for field in (set(before_nodes[key]) | set(after_nodes[key])) - {"id"}
+                if before_nodes[key].get(field) != after_nodes[key].get(field)
+            ),
         }
         for key in changed_nodes
     ]
@@ -48,3 +51,29 @@ def diff_graphs(before: dict, after: dict) -> dict:
         },
         "outputChanges": output_changes,
     }
+
+
+def snapshot_timeline(snapshots: list[dict]) -> list[dict]:
+    ordered = sorted(snapshots, key=lambda item: item["id"])
+    timeline = []
+    previous = None
+    for snapshot in ordered:
+        entry = {key: snapshot[key] for key in ("id", "scanId", "createdAt", "nodeCount", "edgeCount", "hash")}
+        if previous is None:
+            entry["previousId"] = None
+            entry["changes"] = {"nodesAdded": 0, "nodesRemoved": 0, "nodesChanged": 0, "edgesAdded": 0, "edgesRemoved": 0, "edgesChanged": 0, "outputChanges": 0}
+        else:
+            diff = diff_graphs(previous["graph"], snapshot["graph"])
+            entry["previousId"] = previous["id"]
+            entry["changes"] = {
+                "nodesAdded": len(diff["nodes"]["added"]),
+                "nodesRemoved": len(diff["nodes"]["removed"]),
+                "nodesChanged": len(diff["nodes"]["changed"]),
+                "edgesAdded": len(diff["edges"]["added"]),
+                "edgesRemoved": len(diff["edges"]["removed"]),
+                "edgesChanged": len(diff["edges"]["changed"]),
+                "outputChanges": len(diff["outputChanges"]),
+            }
+        timeline.append(entry)
+        previous = snapshot
+    return list(reversed(timeline))
