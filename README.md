@@ -1,5 +1,8 @@
 # Artefact Graph
 
+Интерактивная схема компонентов и потоков данных: откройте
+[`service-architecture.html`](service-architecture.html) локально в браузере.
+
 Python-сервис строит интерактивный граф `Bitbucket project/repository → TeamCity project/build configuration → build`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
 script steps и связанных исходниках (в том числе `pom.xml`), правило `**/sbom.json => artifacts`
