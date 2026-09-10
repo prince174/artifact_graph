@@ -21,6 +21,7 @@ from .auth import AuthMiddleware, login, login_page, logout_response
 from .mapping_quality import coverage_report
 from .alerts import dispatch_webhooks
 from .transport_security import validate_runtime_settings
+from .security_headers import SecurityHeadersMiddleware
 
 scheduler = AsyncIOScheduler()
 
@@ -38,6 +39,7 @@ async def lifespan(app):
 
 app = FastAPI(title="Artefact Graph", version=__version__, lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory=Path(__file__).with_name("static"), check_dir=False), name="static")
 
 

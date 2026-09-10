@@ -13,7 +13,7 @@ def login(page: Page, base_url: str, credentials: tuple[str, str]) -> None:
     page.locator('button[type="submit"]').click()
     expect(page).to_have_url(base_url + "/")
     expect(page).to_have_title("Artifact Graph")
-    page.wait_for_function("typeof cy !== 'undefined' && cy.nodes().length > 0")
+    page.wait_for_function("() => typeof cy !== 'undefined' && cy.nodes().length > 0")
 
 
 def test_login_failure_success_and_local_graph_runtime(page: Page, base_url: str, credentials: tuple[str, str]):
@@ -43,7 +43,7 @@ def test_login_failure_success_and_local_graph_runtime(page: Page, base_url: str
     assert asset.ok
     assert "javascript" in asset.headers.get("content-type", "")
 
-    page.wait_for_function("typeof cy !== 'undefined' && cy.nodes().length > 0")
+    page.wait_for_function("() => typeof cy !== 'undefined' && cy.nodes().length > 0")
     assert page.evaluate("cy.nodes().length") > 0
     assert page.evaluate("cy.edges().length") > 0
 
@@ -59,7 +59,7 @@ def test_repository_search_and_build_output_details(page: Page, base_url: str, c
     payload = response.json()
     assert any(node["kind"] == "repository" and node["label"] == "java-maven-api" for node in payload["nodes"])
     page.wait_for_function(
-        "cy.nodes('[kind = \"repository\"]').length === 1 && "
+        "() => cy.nodes('[kind = \"repository\"]').length === 1 && "
         "cy.nodes('[kind = \"repository\"]').first().data('label') === 'java-maven-api'"
     )
 
@@ -99,10 +99,10 @@ def test_snapshot_comparison(page: Page, base_url: str, credentials: tuple[str, 
     }""", timeout=15_000)
 
     page.reload()
-    page.wait_for_function("typeof cy !== 'undefined' && cy.nodes().length > 0")
-    page.wait_for_function("document.querySelectorAll('#snapshotBefore option').length >= 2")
+    page.wait_for_function("() => typeof cy !== 'undefined' && cy.nodes().length > 0")
+    page.wait_for_function("() => document.querySelectorAll('#snapshotBefore option').length >= 2")
     assert page.locator("#snapshotAfter option").count() >= 2
-    page.locator("button[onclick='compareSnapshots()']").click()
+    page.locator("#compareSnapshotsButton").click()
     panel = page.locator("#diffPanel")
     expect(panel).to_be_visible()
     expect(panel).to_contain_text("#")

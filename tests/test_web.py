@@ -19,7 +19,7 @@ def test_ui_has_server_filters_and_collapsible_branches():
         assert f'id="{control}"' in PAGE
     assert "function toggleCollapse" in PAGE
     assert "function descendants" in PAGE
-    assert "expandAll()" in PAGE
+    assert "addEventListener('click',expandAll)" in PAGE
     assert "Технические данные" in PAGE
 
 
