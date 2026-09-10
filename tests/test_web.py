@@ -145,3 +145,13 @@ def test_failed_and_incomplete_build_colors_take_priority_over_outputs():
     failed_rule = PAGE.index('node[kind = "build"][status = "FAILURE"]')
     running_rule = PAGE.index('node[kind = "build"][state = "running"]')
     assert output_rule < failed_rule < running_rule
+
+
+def test_link_insights_and_impact_controls_are_present():
+    assert 'id="insightsButton"' in PAGE
+    assert "fetch('/api/insights')" in PAGE
+    assert "function showImpact" in PAGE
+    assert "fetch('/api/impact/'" in PAGE
+    assert 'id="impactButton"' in PAGE
+    assert 'node.impact' in PAGE and 'edge.impact' in PAGE
+    assert 'id="clearImpactButton"' in PAGE

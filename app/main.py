@@ -22,6 +22,7 @@ from .mapping_quality import coverage_report
 from .alerts import dispatch_webhooks
 from .transport_security import validate_runtime_settings
 from .security_headers import SecurityHeadersMiddleware
+from .graph_analysis import graph_insights, impact_report
 
 scheduler = AsyncIOScheduler()
 
@@ -106,6 +107,25 @@ def coverage(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=100)
     report["issues"] = issues[offset:offset + limit]
     report["issuePagination"] = {"offset": offset, "limit": limit, "total": len(issues), "hasMore": offset + limit < len(issues)}
     return report
+
+
+@app.get("/api/insights")
+def insights():
+    with SessionLocal() as db:
+        nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in db.query(Node).all()]
+        edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in db.query(Edge).all()]
+    return graph_insights(nodes, edges)
+
+
+@app.get("/api/impact/{node_id:path}")
+def impact(node_id: str):
+    with SessionLocal() as db:
+        nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in db.query(Node).all()]
+        edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in db.query(Edge).all()]
+    try:
+        return impact_report(nodes, edges, node_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
 
 
 @app.post("/api/refresh", status_code=202)

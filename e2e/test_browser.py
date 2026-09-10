@@ -63,6 +63,16 @@ def test_repository_search_and_build_output_details(page: Page, base_url: str, c
         "cy.nodes('[kind = \"repository\"]').first().data('label') === 'java-maven-api'"
     )
 
+    repository_id = page.evaluate("""() => {
+        const repository = cy.nodes('[kind = "repository"]').first();
+        repository.select().emit('tap');
+        return repository.id();
+    }""")
+    assert repository_id
+    page.locator("#impactButton").click()
+    expect(page.locator("#detail")).to_contain_text("Влияние · java-maven-api")
+    page.wait_for_function("() => cy.elements('.impact').length > 0")
+
     selected_id = page.evaluate("""() => {
         const matches = cy.nodes('[kind = "build"]').filter(node =>
             node.data('hasImagePush') && node.data('hasSbom'));
