@@ -42,7 +42,7 @@ jobs:
           output: trivy-fixable-high-critical.txt
       - name: Preserve vulnerability reports
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: container-vulnerability-reports
           path: trivy-*-high-critical.txt

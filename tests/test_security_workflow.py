@@ -41,6 +41,6 @@ def test_security_scan_reports_every_finding_but_blocks_only_fixable_highs():
     assert gate["with"]["ignore-unfixed"] == "true"
     assert gate["with"]["exit-code"] == "1"
     assert gate["with"]["severity"] == "CRITICAL,HIGH"
-    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v5")
+    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v6")
     assert upload["if"] == "always()"
     assert upload["with"]["retention-days"] == "30"
