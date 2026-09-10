@@ -2,11 +2,29 @@ from collections import defaultdict
 import base64
 import binascii
 import json
+import re
 
 
 def select_visible(nodes: list[dict], edges: list[dict], query: str = "", project_limit: int = 10, repo_limit: int = 10):
     visible_nodes, visible_edges, _ = select_visible_page(nodes, edges, query, limit=project_limit, repo_limit=repo_limit)
     return visible_nodes, visible_edges
+
+
+def limit_builds_per_configuration(nodes: list[dict], edges: list[dict], limit: int):
+    """Keep the newest N build leaves per configuration without changing its ancestry."""
+    by_id = {node["id"]: node for node in nodes}
+    builds_by_config: dict[str, list[dict]] = defaultdict(list)
+    for edge in edges:
+        target = by_id.get(edge["target"])
+        if edge.get("relation") == "ran_as" and target and target.get("kind") == "build":
+            builds_by_config[edge["source"]].append(target)
+    keep = {node["id"] for node in nodes if node.get("kind") != "build"}
+    for builds in builds_by_config.values():
+        keep.update(node["id"] for node in sorted(builds, key=_build_recency_key, reverse=True)[:limit])
+    return (
+        [node for node in nodes if node["id"] in keep],
+        [edge for edge in edges if edge["source"] in keep and edge["target"] in keep],
+    )
 
 
 def select_visible_page(nodes: list[dict], edges: list[dict], query: str = "", *, cursor: str = "", limit: int = 10, repo_limit: int = 10):
@@ -113,3 +131,8 @@ def decode_cursor(cursor: str, expected_mode: str) -> int:
 
 def _sort_key(node):
     return node.get("label", "").casefold(), node["id"]
+
+
+def _build_recency_key(node):
+    match = re.search(r"\d+", node.get("label", ""))
+    return node.get("finishDate", ""), int(match.group()) if match else -1, node["id"]

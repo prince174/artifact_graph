@@ -1,6 +1,6 @@
 import pytest
 
-from app.subgraph import select_visible, select_visible_page
+from app.subgraph import limit_builds_per_configuration, select_visible, select_visible_page
 
 
 def fixture(projects=11, repos=11):
@@ -50,3 +50,22 @@ def test_cursor_paginates_projects_and_search_results_stably():
 def test_invalid_cursor_is_rejected():
     with pytest.raises(ValueError, match="Invalid pagination cursor"):
         select_visible_page([], [], cursor="not-base64")
+
+
+def test_build_detail_limit_keeps_newest_builds_and_complete_ancestry():
+    nodes = [
+        {"id": "p", "kind": "bb_project", "label": "P"},
+        {"id": "r", "kind": "repository", "label": "R"},
+        {"id": "t", "kind": "tc_project", "label": "T"},
+        {"id": "c", "kind": "build_configuration", "label": "C"},
+        *({"id": f"b{number}", "kind": "build", "label": f"#{number}"} for number in (2, 10, 7)),
+    ]
+    edges = [
+        {"source": "p", "target": "r", "relation": "contains"},
+        {"source": "r", "target": "t", "relation": "maps_to"},
+        {"source": "t", "target": "c", "relation": "contains"},
+        *({"source": "c", "target": f"b{number}", "relation": "ran_as"} for number in (2, 10, 7)),
+    ]
+    visible, visible_edges = limit_builds_per_configuration(nodes, edges, 2)
+    assert {node["id"] for node in visible} == {"p", "r", "t", "c", "b10", "b7"}
+    assert len(visible_edges) == 5

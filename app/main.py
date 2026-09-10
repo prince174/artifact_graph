@@ -11,7 +11,7 @@ from .layout import layered_positions
 from .filters import filter_graph
 from .models import Edge, GraphSnapshot, Node, Scan, SessionLocal, WebhookDelivery
 from .service import build_input_cache, refresh, source_cache
-from .subgraph import paginate_mapping_issues, select_visible_page
+from .subgraph import limit_builds_per_configuration, paginate_mapping_issues, select_visible_page
 from .web import PAGE
 from .version import __version__
 from .operations import prometheus_metrics, scan_duration_seconds
@@ -68,7 +68,7 @@ def version(): return {"version": __version__}
 
 
 @app.get("/api/graph")
-def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100)):
+def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100), build_limit: int = Query(5, ge=1, le=20)):
     with SessionLocal() as db:
         nodes = db.query(Node).all(); edges = db.query(Edge).all()
     result_nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in nodes]
@@ -86,6 +86,7 @@ def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter
             )
     except ValueError as exc:
         raise HTTPException(422, str(exc))
+    result_nodes, result_edges = limit_builds_per_configuration(result_nodes, result_edges, build_limit)
     return {"nodes": result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges), "pagination": pagination}
 
 

@@ -20,6 +20,9 @@ def test_ui_has_server_filters_and_collapsible_branches():
     assert "function toggleCollapse" in PAGE
     assert "function descendants" in PAGE
     assert "addEventListener('click',expandAll)" in PAGE
+    assert 'id="buildLimit"' in PAGE
+    assert "build_limit:'buildLimit'" in PAGE
+    assert "function collapseProjects" in PAGE
     assert "Технические данные" in PAGE
 
 
