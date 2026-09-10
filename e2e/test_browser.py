@@ -80,6 +80,18 @@ def test_repository_search_and_build_output_details(page: Page, base_url: str, c
     ) == 0
 
 
+def test_search_finds_image_and_returns_its_complete_build_lineage(page: Page, base_url: str, credentials: tuple[str, str]):
+    login(page, base_url, credentials)
+    page.locator("#q").fill("registry:5000/java-maven-api:1.0")
+    with page.expect_response(lambda response: "/api/graph?" in response.url and response.request.method == "GET") as response_info:
+        page.locator("#q").press("Enter")
+    payload = response_info.value.json()
+    matches = [node for node in payload["nodes"] if node.get("searchMatch")]
+    assert len(matches) >= 1 and all(node["kind"] == "build" for node in matches)
+    assert {"bb_project", "repository", "tc_project", "build_configuration", "build"} <= {node["kind"] for node in payload["nodes"]}
+    page.wait_for_function("() => cy.nodes('[searchMatch]').length >= 1")
+
+
 def test_snapshot_comparison(page: Page, base_url: str, credentials: tuple[str, str]):
     login(page, base_url, credentials)
 

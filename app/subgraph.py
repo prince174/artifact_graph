@@ -38,11 +38,27 @@ def select_visible_page(nodes: list[dict], edges: list[dict], query: str = "", *
         outgoing[edge["source"]].append(edge)
         incoming[edge["target"]].append(edge)
 
-    repositories = [node for node in nodes if node["kind"] == "repository"]
     if query:
-        candidates = sorted((node for node in repositories if query.casefold() in node.get("label", "").casefold()), key=_sort_key)
-        selected_repos = candidates[offset:offset + limit]
-        total = len(candidates)
+        needle = query.casefold()
+        repository_candidates = sorted(
+            (node for node in nodes if node["kind"] == "repository" and needle in node.get("label", "").casefold()),
+            key=_sort_key,
+        )
+        if repository_candidates:
+            candidates = repository_candidates
+            selected_repos = candidates[offset:offset + limit]
+            total = len(candidates)
+        else:
+            candidates = sorted((node for node in nodes if needle in _search_text(node)), key=lambda node: (node["kind"], *_sort_key(node)))
+            page_matches = candidates[offset:offset + limit]
+            total = len(candidates)
+            match_ids = {node["id"] for node in page_matches}
+            selected = _connected_lineage(match_ids, by_id, incoming, outgoing)
+            visible_nodes = [dict(node, searchMatch=node["id"] in match_ids) for node in nodes if node["id"] in selected]
+            visible_edges = [edge for edge in edges if edge["source"] in selected and edge["target"] in selected]
+            next_offset = offset + limit
+            pagination = {"mode": mode, "offset": offset, "limit": limit, "total": total, "hasMore": next_offset < total, "nextCursor": encode_cursor(mode, next_offset) if next_offset < total else None}
+            return visible_nodes, visible_edges, pagination
     else:
         candidates = sorted((node for node in nodes if node["kind"] == "bb_project"), key=_sort_key)
         projects = candidates[offset:offset + limit]
@@ -70,11 +86,35 @@ def select_visible_page(nodes: list[dict], edges: list[dict], query: str = "", *
         selected.update(e["source"] for e in incoming[config_id] if e.get("relation") == "contains")
         selected.update(e["target"] for e in outgoing[config_id] if e.get("relation") == "ran_as" and by_id.get(e["target"], {}).get("kind") == "build")
 
-    visible_nodes = [node for node in nodes if node["id"] in selected]
+    visible_nodes = [dict(node, searchMatch=True) if query and node["id"] in selected_repo_ids else node for node in nodes if node["id"] in selected]
     visible_edges = [edge for edge in edges if edge["source"] in selected and edge["target"] in selected]
     next_offset = offset + limit
     pagination = {"mode": mode, "offset": offset, "limit": limit, "total": total, "hasMore": next_offset < total, "nextCursor": encode_cursor(mode, next_offset) if next_offset < total else None}
     return visible_nodes, visible_edges, pagination
+
+
+def _connected_lineage(roots, by_id, incoming, outgoing):
+    allowed = {"contains", "maps_to", "ran_as"}
+    selected = set(roots)
+    for direction in (incoming, outgoing):
+        queue = list(roots)
+        while queue:
+            current = queue.pop()
+            for edge in direction[current]:
+                if edge.get("relation") not in allowed:
+                    continue
+                adjacent = edge["source"] if direction is incoming else edge["target"]
+                if adjacent in by_id and adjacent not in selected:
+                    selected.add(adjacent)
+                    queue.append(adjacent)
+    return selected
+
+
+def _search_text(node):
+    values = [node.get("id", ""), node.get("label", ""), node.get("projectKey", ""), node.get("buildTypeId", "")]
+    values.extend(f"{item.get('engine', '')} {item.get('image', '')}" for item in node.get("pushedImages", []))
+    values.extend(item.get("path", "") for item in node.get("sbomArtifacts", []))
+    return " ".join(str(value) for value in values).casefold()
 
 
 def configuration_repository_ids(configuration: dict, by_id: dict, incoming: dict) -> set[str]:

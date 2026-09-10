@@ -23,6 +23,8 @@ def test_ui_has_server_filters_and_collapsible_branches():
     assert 'id="buildLimit"' in PAGE
     assert "build_limit:'buildLimit'" in PAGE
     assert "function collapseProjects" in PAGE
+    assert "Поиск проекта, репо, билда, image" in PAGE
+    assert "node[?searchMatch]" in PAGE
     assert "Технические данные" in PAGE
 
 
