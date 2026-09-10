@@ -1,0 +1,50 @@
+name: scheduled-security-scan
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container-vulnerabilities:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact application image
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} -t artifact-graph:security-scan .
+      - name: Record all High and Critical findings
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          version: v0.74.0
+          image-ref: artifact-graph:security-scan
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: 0
+          format: table
+          output: trivy-all-high-critical.txt
+      - name: Fail when a fixable High or Critical vulnerability remains
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          version: v0.74.0
+          image-ref: artifact-graph:security-scan
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+          format: table
+          output: trivy-fixable-high-critical.txt
+      - name: Preserve vulnerability reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-vulnerability-reports
+          path: trivy-*-high-critical.txt
+          if-no-files-found: error
+          retention-days: 30
