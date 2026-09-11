@@ -16,6 +16,9 @@ pcompose() {
 }
 ```
 
+Для существующего PostgreSQL в этой функции замените `compose.prod.yaml` на
+`compose.prod.external-db.yaml`. Не определяйте обе версии одновременно в одной операторской сессии.
+
 Если checkout расположен иначе, измените все три абсолютных пути. Не заменяйте `pcompose` обычным `docker compose`: тот может выбрать лабораторный `compose.yaml`, `.env` и другой volume. Скриптам backup/restore/deploy также обязательно передавайте `--prod`.
 
 ## 1. Эксплуатационные границы
@@ -35,7 +38,12 @@ orchestrator -> /health/live и /health/ready
 
 Запускайте ровно **один экземпляр приложения `graph` и один worker Uvicorn**. Планировщик сканирования и обработчик webhook outbox находятся внутри процесса. `refresh_lock` защищает только один процесс; несколько реплик будут параллельно обновлять общий граф и могут повторно отправить webhook. PostgreSQL может быть отказоустойчивым внешним сервисом, но приложение остаётся single-instance до появления распределённой блокировки и атомарного захвата outbox-записей.
 
-`compose.prod.yaml` — самостоятельный файл, содержащий только `graph` и `postgres`. Bitbucket и TeamCity в этом контуре уже существуют на внешних серверах. Не объединяйте его с лабораторным `compose.yaml`. Встроенные `teamcity`, `registry`, профиль `datacenter` и привилегированный `teamcity-agent` профиля `build-lab` предназначены только для интеграционного стенда; опубликованные лабораторные порты по умолчанию привязаны к loopback.
+`compose.prod.yaml` — самостоятельный файл с `graph` и выделенным `postgres`.
+`compose.prod.external-db.yaml` содержит только `graph` и подключает существующий PostgreSQL через
+обязательный `DATABASE_URL`. Bitbucket и TeamCity в обоих вариантах являются внешними серверами.
+Не объединяйте эти файлы с лабораторным `compose.yaml` или друг с другом. Встроенные `teamcity`,
+`registry`, профиль `datacenter` и привилегированный `teamcity-agent` профиля `build-lab`
+предназначены только для интеграционного стенда.
 
 Для перехода Cloud → Data Center или на другие серверы создавайте отдельный project/volume с пустой базой. Не переиспользуйте Cloud-базу: там остаются прежние графы, snapshots и история, которые при недоступности нового upstream могут показываться как stale. `artefact-graph-prod` отделён от лабораторного `artefact-graph`, но повторное переключение уже существующего production-контура требует новой изолированной установки. Не удаляйте старый volume — сохраните его для отката и аудита.
 
@@ -53,6 +61,8 @@ orchestrator -> /health/live и /health/ready
 - `WEB_COOKIE_SECURE=true`; пользовательский трафик обязательно приходит по HTTPS;
 - `VERIFY_TLS=true` для Bitbucket, TeamCity и Registry/Nexus;
 - уникальный `POSTGRES_PASSWORD` из минимум 32 URL-safe символов (`A-Z`, `a-z`, `0-9`, `_`, `-`), отличный от web-пароля; например, сгенерируйте два независимых значения `openssl rand -hex 32`;
+- либо для внешней БД полный `postgresql+psycopg://` URL отдельной database и роли с
+  `sslmode=verify-full`/`verify-ca`; при внутреннем CA путь `sslrootcert` должен находиться под `/app/certs`;
 - порт 8080 доступен только reverse proxy, например через bind на `127.0.0.1`, служебную Docker network или внутренний load balancer;
 - PostgreSQL не публикует порт наружу;
 - `/metrics`, `/health/live` и `/health/ready` закрыты сетевым ACL: эти маршруты намеренно не требуют web-сессии;
@@ -108,7 +118,10 @@ test ! -e .env.prod && install -m 600 .env.prod.example .env.prod
 7. Создайте pre-deploy backup и проверьте его восстановлением во временную базу по процедуре ниже, не заменяя рабочую базу.
 8. Отдельно проверьте новую миграцию на восстановленной копии production-базы или на staging с эквивалентным объёмом данных.
 
-На первой установке `scripts/deploy.sh --prod` при отсутствии `.env.prod` копирует в него шаблон `.env.prod.example`, выставляет mode `600` и **останавливается до запуска контейнеров** с кодом `2`. Это ожидаемый запрос настройки: заполните URL, RO-токены, разные случайные пароли и CA, затем повторите команду. Не копируйте поверх уже заполненного `.env.prod`.
+На первой установке `scripts/deploy.sh --prod` или `--prod-external-db` при отсутствии `.env.prod`
+копирует шаблон `.env.prod.example`, выставляет mode `600` и **останавливается до запуска контейнеров**
+с кодом `2`. Это ожидаемый запрос настройки: заполните URL, RO-токены, пароли и CA, затем повторите
+команду. Не копируйте поверх уже заполненного `.env.prod`.
 
 ## 3. Развёртывание и миграции
 
@@ -141,8 +154,20 @@ pcompose exec -T graph alembic current
 
 `scripts/deploy.sh --prod` клонирует репозиторий при необходимости, требует чистый checkout, выполняет `git pull --ff-only`, проверяет production-конфигурацию, собирает образ, пересоздаёт только `postgres` и `graph` с сохранением volume и запускает authenticated smoke. Файл `compose.prod.yaml`, `.env.prod` и project `artefact-graph-prod` выбираются явно; переменные `COMPOSE_FILE`/`COMPOSE_PROJECT_NAME` не переключат скрипт на лабораторный контур. Скрипт обновляет текущую tracking-ветку, поэтому перед production deploy проверьте её и нужный SHA.
 
+`scripts/deploy.sh --prod-external-db` использует `compose.prod.external-db.yaml`, проверяет схему URL
+и TLS, пересоздаёт только `graph` и не выполняет lifecycle-операций над внешней БД. Alembic-миграции
+всё равно применяются при старте приложения; backup и восстановление до этого момента выполняет DBA.
+
 ```bash
 bash scripts/deploy.sh --prod \
+  https://github.com/prince174/artifact_graph.git \
+  /opt/artefact-graph-prod
+```
+
+Для внешней БД:
+
+```bash
+bash scripts/deploy.sh --prod-external-db \
   https://github.com/prince174/artifact_graph.git \
   /opt/artefact-graph-prod
 ```
@@ -159,8 +184,6 @@ pcompose logs --since 15m --follow graph
 Первый scan выполняется в startup lifecycle и может занять заметное время. Не прерывайте контейнер только потому, что readiness ещё не стала зелёной; сравнивайте длительность с обычной `artifact_graph_last_scan_duration_seconds` и установленным timeout окна изменения.
 
 По умолчанию smoke имеет 180 секунд; для большого контура заранее задайте `SMOKE_TIMEOUT_SECONDS`, например `900`. При ошибке deploy/smoke скрипт возвращает ненулевой код и сохраняет контейнеры, checkout и данные для диагностики. **Автоматического отката кода или схемы нет**, поскольку миграция уже могла примениться. Порядок согласованного rollback описан в разделе 8. Не запускайте `down -v` и не удаляйте volumes для устранения ошибки.
-
-Внешний PostgreSQL и дополнительные production override не входят в готовый deploy script: для них нужен отдельно проверенный wrapper, явно задающий все Compose-файлы, `.env.prod` и project, без лабораторных сервисов.
 
 ### 3.4. Проверка после deploy
 
@@ -313,7 +336,8 @@ pcompose exec -T postgres psql -U graph -d graph -v ON_ERROR_STOP=1 -c \
 
 - PostgreSQL database `graph` — узлы, связи, scan history, snapshots, persistent cache и webhook outbox;
 - файл из `MAPPING_RULES_HOST_PATH`;
-- `compose.prod.yaml`, дополнительные проверенные override (если есть) и идентификатор образа/Git SHA;
+- выбранный `compose.prod.yaml` или `compose.prod.external-db.yaml`, дополнительные проверенные override
+  (если есть) и идентификатор образа/Git SHA;
 - секреты и `.env.prod` — отдельно, в зашифрованном secret backup, не рядом с database dump;
 - CA certificates и конфигурация reverse proxy.
 

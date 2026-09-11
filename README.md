@@ -86,16 +86,25 @@ docker compose --profile datacenter up -d bitbucket-db bitbucket
 
 Это подключение **графа** к уже работающим Bitbucket Data Center и TeamCity, а не перенос
 репозиториев из Cloud в DC и не установка/лицензирование этих систем.
-Используйте отдельные `compose.prod.yaml`, `.env.prod` и checkout `/opt/artefact-graph-prod`.
-В prod запускаются только `graph` и `postgres`; лабораторные TC, агент, registry и BB не запускаются.
-Не объединяйте `compose.prod.yaml` с `compose.yaml` через несколько `-f`.
+Используйте отдельные production Compose, `.env.prod` и checkout `/opt/artefact-graph-prod`.
+`compose.prod.yaml` запускает `graph` и выделенный PostgreSQL, а `compose.prod.external-db.yaml` —
+только `graph` с подключением к существующему PostgreSQL. Лабораторные TC, агент, registry и BB
+не запускаются. Не объединяйте production-файлы с `compose.yaml` или друг с другом через несколько `-f`.
 
 Один экземпляр графа работает с одним BB provider и одним сервером TC одновременно. Для
-Cloud-стенда и DC-prod нужны отдельные БД. Prod Compose использует проект `artefact-graph-prod`
-и собственный volume `artefact-graph-prod_graph-db`; lab-данные не переиспользуются.
+Cloud-стенда и DC-prod нужны отдельные БД. Prod Compose использует проект `artefact-graph-prod`;
+во встроенном режиме создаётся volume `artefact-graph-prod_graph-db`, а во внешнем — выделенная
+database существующего PostgreSQL. Lab-данные не переиспользуются.
 Не копируйте Cloud dump в новую DC-БД: история, snapshots и старый граф относятся к прежнему источнику.
 При последующей смене самого сервера BB/TC также подготовьте отдельную БД/инсталляцию;
 при отказе upstream приложение намеренно сохраняет предыдущую карту, а не удаляет её.
+
+Для существующего PostgreSQL используйте только режим `--prod-external-db`. База должна быть
+PostgreSQL 14+ (рекомендуется 16), отдельной от других приложений, с отдельными database и login-role.
+Миграции Alembic автоматически выполняются ролью приложения при старте, поэтому ей нужны права
+создания и изменения объектов в своей базе/schema. Администрирование, replication и доступ к чужим
+базам не нужны. Backup, PITR, HA и восстановление внешней базы остаются ответственностью её владельца;
+локальные `scripts/backup.sh` и `scripts/restore.sh` предназначены только для встроенного PostgreSQL.
 
 Контракт DC REST API для ветки 8.19 покрыт автоматическими тестами: проекты/репозитории,
 пагинация, default branch с именем не `main`, точная ревизия, чтение файлов, пустые репозитории,
@@ -176,6 +185,17 @@ WEB_USERNAME=root
 WEB_PASSWORD=<second-random-hex-value>
 ```
 
+Если используется существующий PostgreSQL, `POSTGRES_PASSWORD` не нужен. Добавьте URL с обязательной
+проверкой TLS; зарезервированные символы в имени/пароле должны быть percent-encoded:
+
+```env
+DATABASE_URL=postgresql+psycopg://artifact_graph:<encoded-password>@postgres.company.example:5432/artifact_graph?sslmode=verify-full
+```
+
+При внутреннем CA добавьте в тот же URL `&sslrootcert=/app/certs/company-ca.pem` и настройте
+`TLS_CA_HOST_DIR` ниже. Режим `--prod-external-db` отклоняет `sslmode=require`, незашифрованный,
+неполный или не-psycopg URL. Пароль базы не передавайте в Git URL, командной строке или чат.
+
 | Настройка | Как заполнить |
 |---|---|
 | `BITBUCKET_URL` | Базовый HTTPS URL сервера. Сохраните `/bitbucket`, если такой context path действительно есть; не добавляйте `/rest/api`, `/projects/...` или Cloud workspace URL. |
@@ -184,6 +204,7 @@ WEB_PASSWORD=<second-random-hex-value>
 | `BITBUCKET_EMAIL`, `BITBUCKET_WORKSPACE`, `BITBUCKET_AUTH` | Только Cloud; для DC первые два можно оставить пустыми, третий игнорируется. |
 | `TEAMCITY_BUILD_LIMIT` | От 1 до 100, по умолчанию 5 в prod. Это общий лимит последних запусков с учётом очереди, а не 5 успешных плюс все остальные. |
 | `POSTGRES_PASSWORD` | Отдельный случайный пароль, минимум 32 символа из `A-Z a-z 0-9 _ -`; hex из команды выше подходит для URL подключения к БД. |
+| `DATABASE_URL` | Только для `--prod-external-db`: полный `postgresql+psycopg://` URL отдельной базы с `sslmode=verify-full` или `verify-ca`. |
 | `WEB_PASSWORD` | Другой случайный пароль минимум 32 символа; рекомендуется hex, чтобы исключить интерполяцию `$` в Compose. |
 
 Prod Compose принудительно задаёт `APP_MODE=live`, `DEPLOYMENT_MODE=production`,
@@ -270,6 +291,21 @@ SMOKE_TIMEOUT_SECONDS=900 bash scripts/deploy.sh --prod \
   https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
 ```
 
+Для существующего PostgreSQL используйте другой самостоятельный Compose и режим deploy:
+
+```bash
+cd /opt/artefact-graph-prod
+docker compose --project-name artefact-graph-prod --env-file .env.prod \
+  -f compose.prod.external-db.yaml config --quiet
+SMOKE_TIMEOUT_SECONDS=900 bash scripts/deploy.sh --prod-external-db \
+  https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+```
+
+Этот режим не создаёт, не перезапускает и не удаляет внешний PostgreSQL. Перед первым запуском DBA
+создаёт пустую database и роль приложения, разрешает TLS-соединения с Docker-хоста и настраивает backup.
+Контейнер `graph` применяет миграции к указанной базе, поэтому сначала проверьте hostname, SAN/CA,
+firewall/`pg_hba.conf` и права роли на отдельном staging-подключении.
+
 Тот же вызов используйте для следующих обновлений, **после pre-deploy backup**.
 Скрипт клонирует отсутствующий checkout, затем делает `git pull --ff-only`, проверяет конфигурацию,
 собирает и пересоздаёт только prod-контейнеры, выполняет миграции и smoke.
@@ -294,6 +330,9 @@ docker compose --project-name artefact-graph-prod --env-file .env.prod -f compos
 GRAPH_URL=https://graph.company.example SMOKE_ENV_FILE=.env.prod \
   SMOKE_TIMEOUT_SECONDS=900 bash scripts/smoke-linux.sh
 ```
+
+В варианте с внешней БД замените `compose.prod.yaml` на `compose.prod.external-db.yaml` во всех
+командах просмотра `ps`/`logs`; smoke-команда остаётся той же.
 
 Smoke проверяет readiness, вход, API версии, **свежий `lastScan.status=success`**, структуру
 непустого графа, отсутствие stale на его видимой странице и метрики. Во время deploy дополнительно
@@ -353,6 +392,9 @@ cd /opt/artefact-graph-prod
 bash scripts/backup.sh --prod
 bash scripts/verify-backup.sh --prod backups/prod/artifact-graph-YYYYmmddTHHMMSSZ.dump
 ```
+
+Эти команды не работают с `--prod-external-db`: используйте утверждённые процедуры DBA для backup,
+PITR и восстановления выделенной базы `artifact_graph` и обязательно проведите restore rehearsal.
 
 Храните dump/checksum/manifest вне Docker-хоста; `.env.prod`, mapping, CA, proxy и Git SHA —
 отдельно с защитой секретов. Восстановление разрушительно и требует явного подтверждения:

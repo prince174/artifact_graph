@@ -1,0 +1,78 @@
+name: artefact-graph-prod
+
+# Standalone production stack for an existing external PostgreSQL database.
+# Do not combine this file with compose.yaml or compose.prod.yaml.
+services:
+  graph:
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    user: "10001:10001"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8080"]
+    restart: unless-stopped
+    environment:
+      APP_MODE: live
+      DEPLOYMENT_MODE: production
+      DATABASE_URL: ${DATABASE_URL:?Set the external PostgreSQL DATABASE_URL in .env.prod}
+      REFRESH_MINUTES: ${REFRESH_MINUTES:-60}
+      SCAN_HISTORY_LIMIT: ${SCAN_HISTORY_LIMIT:-100}
+      INCREMENTAL_CACHE_SIZE: ${INCREMENTAL_CACHE_SIZE:-2000}
+      PERSISTENT_CACHE_TTL_HOURS: ${PERSISTENT_CACHE_TTL_HOURS:-168}
+      PERSISTENT_CACHE_MAX_ROWS: ${PERSISTENT_CACHE_MAX_ROWS:-5000}
+      SNAPSHOT_HISTORY_LIMIT: ${SNAPSHOT_HISTORY_LIMIT:-50}
+      API_RETRY_ATTEMPTS: ${API_RETRY_ATTEMPTS:-4}
+      API_RETRY_BACKOFF_SECONDS: ${API_RETRY_BACKOFF_SECONDS:-0.5}
+      BITBUCKET_PROVIDER: ${BITBUCKET_PROVIDER:-datacenter}
+      BITBUCKET_URL: ${BITBUCKET_URL:?Set the external Bitbucket HTTPS URL}
+      BITBUCKET_WORKSPACE: ${BITBUCKET_WORKSPACE:-}
+      BITBUCKET_EMAIL: ${BITBUCKET_EMAIL:-}
+      BITBUCKET_AUTH: ${BITBUCKET_AUTH:-api_token}
+      BITBUCKET_TOKEN: ${BITBUCKET_TOKEN:?Set the read-only Bitbucket token}
+      TEAMCITY_URL: ${TEAMCITY_URL:?Set the external TeamCity HTTPS URL}
+      TEAMCITY_PUBLIC_URL: ${TEAMCITY_PUBLIC_URL:-${TEAMCITY_URL:?Set TEAMCITY_URL}}
+      TEAMCITY_TOKEN: ${TEAMCITY_TOKEN:?Set the read-only TeamCity token}
+      TEAMCITY_BUILD_LIMIT: ${TEAMCITY_BUILD_LIMIT:-5}
+      REGISTRY_ENABLED: "false"
+      VERIFY_TLS: "true"
+      TLS_CA_FILE: ${TLS_CA_FILE:-}
+      WEB_AUTH_ENABLED: "true"
+      WEB_USERNAME: ${WEB_USERNAME:-root}
+      WEB_PASSWORD: ${WEB_PASSWORD:?Set WEB_PASSWORD in .env.prod}
+      WEB_SESSION_HOURS: ${WEB_SESSION_HOURS:-12}
+      WEB_COOKIE_SECURE: "true"
+      WEB_LOGIN_ATTEMPTS: ${WEB_LOGIN_ATTEMPTS:-5}
+      WEB_LOGIN_WINDOW_SECONDS: ${WEB_LOGIN_WINDOW_SECONDS:-300}
+      MAPPING_RULES_PATH: /app/config/mapping-rules.yaml
+      WEBHOOK_ENABLED: ${WEBHOOK_ENABLED:-false}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      WEBHOOK_VERIFY_TLS: "true"
+      WEBHOOK_ALLOW_HTTP: "false"
+      WEBHOOK_TIMEOUT_SECONDS: ${WEBHOOK_TIMEOUT_SECONDS:-5}
+      WEBHOOK_MAX_ATTEMPTS: ${WEBHOOK_MAX_ATTEMPTS:-6}
+    volumes:
+      - type: bind
+        source: ${MAPPING_RULES_HOST_PATH:-./config/mapping-rules.yaml}
+        target: /app/config/mapping-rules.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TLS_CA_HOST_DIR:-./config}
+        target: /app/certs
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${GRAPH_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s

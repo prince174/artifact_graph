@@ -26,6 +26,13 @@ jobs:
           BITBUCKET_TOKEN: ci-read-only-placeholder
           TEAMCITY_TOKEN: ci-read-only-placeholder
         run: docker compose --env-file .env.prod.example -f compose.prod.yaml config --quiet
+      - name: Validate external database production stack (dummy credentials only)
+        env:
+          DATABASE_URL: postgresql+psycopg://reader:dummy@postgres.example/artifact_graph?sslmode=verify-full
+          WEB_PASSWORD: ci-web-password-only-11111111111111111111111
+          BITBUCKET_TOKEN: ci-read-only-placeholder
+          TEAMCITY_TOKEN: ci-read-only-placeholder
+        run: docker compose --env-file .env.prod.example -f compose.prod.external-db.yaml config --quiet
       - run: docker build --build-arg GIT_SHA=${{ github.sha }} -t artifact-graph:${{ github.sha }} .
   browser-e2e:
     needs: test

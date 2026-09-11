@@ -41,13 +41,28 @@ def test_production_compose_is_an_isolated_hardened_external_server_stack():
     assert any(volume["target"] == "/app/certs" for volume in graph["volumes"])
 
 
+def test_external_database_compose_contains_only_the_hardened_graph_service():
+    config = yaml.safe_load((ROOT / "compose.prod.external-db.yaml").read_text(encoding="utf-8"))
+    assert config["name"] == "artefact-graph-prod"
+    assert set(config["services"]) == {"graph"}
+    assert "volumes" not in config
+    graph = config["services"]["graph"]
+    assert graph["user"] == "10001:10001"
+    assert graph["read_only"] and graph["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in graph["security_opt"]
+    assert all(port.startswith("127.0.0.1:") for port in graph["ports"])
+    assert graph["environment"]["DATABASE_URL"].startswith("${DATABASE_URL:?")
+    assert graph["environment"]["DEPLOYMENT_MODE"] == "production"
+    assert graph["environment"]["VERIFY_TLS"] == graph["environment"]["WEB_COOKIE_SECURE"] == "true"
+
+
 def test_production_example_has_no_working_secrets():
     values = {}
     for line in (ROOT / ".env.prod.example").read_text(encoding="utf-8").splitlines():
         if line and not line.startswith("#"):
             key, _, value = line.partition("=")
             values[key] = value
-    assert all(values[name] == "" for name in ("POSTGRES_PASSWORD", "WEB_PASSWORD", "BITBUCKET_TOKEN", "TEAMCITY_TOKEN"))
+    assert all(values[name] == "" for name in ("POSTGRES_PASSWORD", "DATABASE_URL", "WEB_PASSWORD", "BITBUCKET_TOKEN", "TEAMCITY_TOKEN"))
     assert values["BITBUCKET_PROVIDER"] == "datacenter"
     assert values["TEAMCITY_BUILD_LIMIT"] == "5"
     assert values["TLS_CA_FILE"] == ""
@@ -68,7 +83,7 @@ def deployment(tmp_path):
     deployment_dir.mkdir()
     (deployment_dir / ".git").mkdir()
     (deployment_dir / "scripts").mkdir()
-    for filename in ("compose.yaml", "compose.prod.yaml", ".env.example", ".env.prod.example"):
+    for filename in ("compose.yaml", "compose.prod.yaml", "compose.prod.external-db.yaml", ".env.example", ".env.prod.example"):
         shutil.copyfile(ROOT / filename, deployment_dir / filename)
     for filename in (".env", ".env.prod"):
         (deployment_dir / filename).write_text("WEB_USERNAME=root\nWEB_PASSWORD=test-secret\n", encoding="utf-8")
@@ -133,18 +148,22 @@ def deployment(tmp_path):
 
 
 @LINUX_SHELL
-@pytest.mark.parametrize("mode,filename,project", [("--prod", ".env.prod", "artefact-graph-prod"), ("--lab", ".env", "artefact-graph")])
+@pytest.mark.parametrize("mode,filename,project", [("--prod", ".env.prod", "artefact-graph-prod"), ("--prod-external-db", ".env.prod", "artefact-graph-prod"), ("--lab", ".env", "artefact-graph")])
 def test_deploy_uses_explicit_stack_and_checks_a_new_scan(deployment, mode, filename, project):
     directory, run, smoke_log, _ = deployment
-    result, commands = run(mode)
+    external = mode == "--prod-external-db"
+    result, commands = run(mode, config_change=(lambda config: (config["services"].pop("postgres"), config["services"]["graph"]["environment"].update(DATABASE_URL="postgresql+psycopg://reader:secret@db.example/graph?sslmode=verify-full"))) if external else None)
     assert result.returncode == 0, result.stderr
     up = next(command for command in commands if command[0] == "docker" and "up" in command)
     assert up[up.index("--project-name") + 1] == project
     assert up[up.index("--env-file") + 1] == str(directory / filename)
-    assert up[up.index("-f") + 1] == str(directory / ("compose.prod.yaml" if mode == "--prod" else "compose.yaml"))
+    expected_compose = "compose.prod.external-db.yaml" if external else ("compose.prod.yaml" if mode == "--prod" else "compose.yaml")
+    assert up[up.index("-f") + 1] == str(directory / expected_compose)
     assert "--force-recreate" in up and "--remove-orphans" not in up
     if mode == "--prod":
         assert up[-2:] == ["postgres", "graph"]
+    if external:
+        assert up[-1:] == ["graph"] and "postgres" not in up
     smoke_values = smoke_log.read_text().splitlines()
     assert smoke_values[:2] == [str(directory / filename), "http://localhost:18080"]
     assert datetime.fromisoformat(smoke_values[2].replace("Z", "+00:00")) <= datetime.now(timezone.utc)
@@ -152,10 +171,11 @@ def test_deploy_uses_explicit_stack_and_checks_a_new_scan(deployment, mode, file
 
 
 @LINUX_SHELL
-def test_deploy_initial_prod_checkout_creates_blank_template_and_stops(deployment):
+@pytest.mark.parametrize("mode", ["--prod", "--prod-external-db"])
+def test_deploy_initial_prod_checkout_creates_blank_template_and_stops(deployment, mode):
     directory, run, _, _ = deployment
     (directory / ".env.prod").unlink()
-    result, commands = run("--prod")
+    result, commands = run(mode)
     assert result.returncode == 2 and "fill in server URLs" in result.stderr
     assert (directory / ".env.prod").read_bytes() == (ROOT / ".env.prod.example").read_bytes()
     assert not any("up" in command for command in commands)
@@ -195,6 +215,51 @@ def test_prod_preflight_accepts_existing_ca_bundle(deployment):
     (tmp_path / "company.pem").write_text("test certificate path only", encoding="utf-8")
     result, _ = run("--prod", config_change=lambda config: config["services"]["graph"]["environment"].update(TLS_CA_FILE="/app/certs/company.pem"))
     assert result.returncode == 0, result.stderr
+
+
+@LINUX_SHELL
+@pytest.mark.parametrize("database_url", [
+    "postgresql+psycopg://reader:secret@db.example/graph",
+    "postgresql://reader:secret@db.example/graph?sslmode=verify-full",
+    "postgresql+psycopg://db.example/graph?sslmode=verify-full",
+    "postgresql+psycopg://reader:secret@db.example/graph?sslmode=require",
+])
+def test_external_database_preflight_rejects_incomplete_or_weak_urls(deployment, database_url):
+    _, run, _, _ = deployment
+    def configure(config):
+        config["services"].pop("postgres")
+        config["services"]["graph"]["environment"]["DATABASE_URL"] = database_url
+    result, commands = run("--prod-external-db", config_change=configure)
+    assert result.returncode != 0 and "DATABASE_URL" in result.stderr
+    assert database_url not in result.stderr
+    assert not any("up" in command for command in commands)
+
+
+@LINUX_SHELL
+def test_external_database_preflight_accepts_verified_postgresql_url(deployment):
+    _, run, _, _ = deployment
+    def configure(config):
+        config["services"].pop("postgres")
+        config["services"]["graph"]["environment"]["DATABASE_URL"] = "postgresql+psycopg://reader:secret@db.example/graph?sslmode=verify-full"
+    result, commands = run("--prod-external-db", config_change=configure)
+    assert result.returncode == 0, result.stderr
+    up = next(command for command in commands if command[0] == "docker" and "up" in command)
+    assert up[-1] == "graph"
+
+
+@LINUX_SHELL
+@pytest.mark.parametrize("rootcert", ["/etc/secret.pem", "/app/certs/../secret.pem", "/app/certs/missing.pem"])
+def test_external_database_preflight_rejects_unsafe_or_missing_rootcert(deployment, rootcert):
+    _, run, _, _ = deployment
+    def configure(config):
+        config["services"].pop("postgres")
+        config["services"]["graph"]["environment"]["DATABASE_URL"] = (
+            "postgresql+psycopg://reader:secret@db.example/graph?sslmode=verify-full&sslrootcert=" + rootcert
+        )
+    result, commands = run("--prod-external-db", config_change=configure)
+    assert result.returncode != 0 and "sslrootcert" in result.stderr
+    assert rootcert not in result.stderr
+    assert not any("up" in command for command in commands)
 
 
 @LINUX_SHELL

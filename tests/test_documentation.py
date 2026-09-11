@@ -38,10 +38,10 @@ def test_documentation_bash_examples_parse_without_execution(filename):
 def test_dc_switch_guide_is_explicit_about_isolation_and_acceptance():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     production = readme.split('id="bitbucket-data-center-production"', 1)[1].split("## Развёртывание lab", 1)[0]
-    for command in re.findall(r"^docker compose (.+)$", production, flags=re.M):
-        assert "--project-name artefact-graph-prod" in command
-        assert "--env-file .env.prod -f compose.prod.yaml" in command
+    assert "docker compose --project-name artefact-graph-prod --env-file .env.prod" in production
+    assert "-f compose.prod.yaml" in production
+    assert "-f compose.prod.external-db.yaml" in production
     for required in ("BITBUCKET_PROVIDER=datacenter", "TLS_CA_FILE=/app/certs/company-ca.pem",
-                     "TEAMCITY_BUILD_LIMIT=5", "lastScan.status=success", "--prod", "same-origin",
+                     "TEAMCITY_BUILD_LIMIT=5", "lastScan.status=success", "--prod", "--prod-external-db", "same-origin",
                      "backups/prod/", "не копируйте cloud dump"):
         assert required.lower() in production.lower(), required
