@@ -15,6 +15,121 @@ Bitbucket подключается через общий контракт `Repos
 
 Для перехода с Cloud на существующий корпоративный сервер см. [Bitbucket Data Center в production](#bitbucket-data-center-production).
 
+## Схема работы сервиса
+
+```mermaid
+flowchart LR
+    S[Планировщик: startup / ручной / раз в час]
+    BB[Bitbucket Data Center REST 1.0]
+    TC[TeamCity REST API]
+    RP[RepositoryProvider]
+    TCC[TeamCityCollector]
+    SA[Анализ pom.xml, Gradle, npm и скриптов]
+    M[Сопоставление по нормализованным clone/VCS URL]
+    O[Признаки build: docker/podman push и sbom.json]
+    DB[(Внешний PostgreSQL)]
+    API[FastAPI]
+    UI[Интерактивный Cytoscape-граф]
+
+    S --> BB --> RP --> SA --> M
+    S --> TC --> TCC --> M
+    TCC -->|build logs + artifacts| O
+    SA -->|объявленные команды| O
+    M --> O --> DB --> API --> UI
+    DB -->|snapshots, diff, stale fallback| API
+```
+
+1. При старте, вручную и затем раз в `REFRESH_MINUTES` сервис выполняет read-only обход BB и TC.
+2. Адаптер Data Center читает пользовательские проекты, репозитории, default branch, текущую ревизию
+   и нужные файлы. TeamCity-адаптер читает проекты, VCS roots, конфигурации и последние билды.
+3. Репозиторий связывается с build configuration по нормализованному clone URL и URL VCS root.
+   Сходство названий не считается доказательством связи; исключения задаются mapping rules.
+4. Конфигурации и исходники анализируются на `docker push`/`podman push`, включая вызванные скрипты
+   и `pom.xml`. Фактически выполненный push подтверждается по логу конкретного TeamCity build.
+5. `sbom.json` считается найденным для билда, только если TeamCity опубликовал его как artifact.
+6. Текущий граф, история сканов, snapshots, кэш и webhook outbox атомарно сохраняются в PostgreSQL.
+   При временном отказе BB/TC последняя пригодная карта остаётся доступна с признаком `stale`.
+7. FastAPI отдаёт фильтрованный граф; браузер показывает цепочку
+   `BB project → repository → TC project → build configuration → build`, поиск, impact и diff.
+
+Интерактивная подробная схема без внешних CDN находится в
+[`service-architecture.html`](service-architecture.html).
+
+## Быстрый запуск production: внешние BB, TC и PostgreSQL
+
+Этот вариант запускает **только Artifact Graph**. Существующие Bitbucket Data Center, TeamCity и
+PostgreSQL сервис не создаёт, не перезапускает и не изменяет, кроме Alembic-миграций в выделенной
+для него базе. Перед запуском DBA должен создать отдельную database и login-role, разрешить соединение
+с Docker-хоста по TLS и настроить backup/PITR.
+
+На Linux-хосте:
+
+```bash
+sudo git clone https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+sudo chown -R "$(id -u):$(id -g)" /opt/artefact-graph-prod
+cd /opt/artefact-graph-prod
+umask 077
+cp .env.prod.example .env.prod
+chmod 600 .env.prod
+openssl rand -hex 32
+```
+
+Последнее значение сохраните как `WEB_PASSWORD`. Заполните `.env.prod` локально, не присылая секреты
+в чат и не коммитя файл:
+
+```env
+DATABASE_URL=postgresql+psycopg://artifact_graph:<percent-encoded-password>@postgres.company.example:5432/artifact_graph?sslmode=verify-full
+
+BITBUCKET_PROVIDER=datacenter
+BITBUCKET_URL=https://bitbucket.company.example/bitbucket
+BITBUCKET_TOKEN=<Bitbucket-Data-Center-RO-token>
+
+TEAMCITY_URL=https://teamcity.company.example/teamcity
+TEAMCITY_PUBLIC_URL=https://teamcity.company.example/teamcity
+TEAMCITY_TOKEN=<TeamCity-RO-token>
+TEAMCITY_BUILD_LIMIT=5
+
+WEB_USERNAME=root
+WEB_PASSWORD=<random-value-from-openssl>
+GRAPH_PORT=18080
+REFRESH_MINUTES=60
+```
+
+Если BB, TC или PostgreSQL используют внутренний CA, поместите публичный PEM bundle на хост и добавьте:
+
+```env
+TLS_CA_HOST_DIR=/etc/artifact-graph/certs
+TLS_CA_FILE=/app/certs/company-ca.pem
+```
+
+Для PostgreSQL добавьте к `DATABASE_URL` параметр
+`&sslrootcert=/app/certs/company-ca.pem`. Затем проверьте конфигурацию и запустите:
+
+```bash
+cd /opt/artefact-graph-prod
+docker compose --project-name artefact-graph-prod --env-file .env.prod \
+  -f compose.prod.external-db.yaml config --quiet
+
+SMOKE_TIMEOUT_SECONDS=900 bash scripts/deploy.sh --prod-external-db \
+  https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+```
+
+Проверка после запуска:
+
+```bash
+docker compose --project-name artefact-graph-prod --env-file .env.prod \
+  -f compose.prod.external-db.yaml ps
+docker compose --project-name artefact-graph-prod --env-file .env.prod \
+  -f compose.prod.external-db.yaml logs --since 15m graph
+
+GRAPH_URL=https://graph.company.example SMOKE_ENV_FILE=.env.prod \
+  SMOKE_TIMEOUT_SECONDS=900 bash scripts/smoke-linux.sh
+```
+
+Пользовательский доступ должен идти через HTTPS reverse proxy к `127.0.0.1:18080`; production использует
+Secure cookie. Успешный запуск означает `healthy`, свежий `lastScan.status=success`, непустой граф и
+отсутствие неожиданных `stale`-узлов. Полная подготовка прав, CA, mapping rules и приёмка описаны ниже.
+
 ## Быстрый старт demo
 
 ```bash

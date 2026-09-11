@@ -45,3 +45,16 @@ def test_dc_switch_guide_is_explicit_about_isolation_and_acceptance():
                      "TEAMCITY_BUILD_LIMIT=5", "lastScan.status=success", "--prod", "--prod-external-db", "same-origin",
                      "backups/prod/", "не копируйте cloud dump"):
         assert required.lower() in production.lower(), required
+
+
+def test_readme_has_architecture_and_external_database_quick_start():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    quick_start = readme.split("## Быстрый запуск production: внешние BB, TC и PostgreSQL", 1)[1].split("## Быстрый старт demo", 1)[0]
+    assert "```mermaid" in readme
+    for required in (
+        "Bitbucket Data Center REST 1.0", "TeamCity REST API", "Внешний PostgreSQL",
+        "compose.prod.external-db.yaml", "--prod-external-db", "sslmode=verify-full",
+        "lastScan.status=success", "SMOKE_ENV_FILE=.env.prod",
+    ):
+        assert required in readme, required
+    assert "docker compose --project-name artefact-graph-prod" in quick_start

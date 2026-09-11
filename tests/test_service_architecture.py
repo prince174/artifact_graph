@@ -17,6 +17,7 @@ def test_interactive_architecture_is_standalone_and_covers_the_service_contract(
     for concept in (
         "Bitbucket Cloud", "Bitbucket Data Center", "TeamCityCollector",
         "docker / podman push", "**/sbom.json", "PostgreSQL", "Cytoscape UI",
+        "Внешний или встроенный PostgreSQL", "TLS required",
     ):
         assert concept in html
 

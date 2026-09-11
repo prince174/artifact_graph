@@ -27,7 +27,7 @@
 <article class="node" tabindex="0" data-id="fallback" data-flows="degraded" style="--accent:#fb7185"><span class="type">Resilience</span><h3>Stale fallback</h3><p>Последняя карта остаётся для чтения</p></article></div>
 <div class="lane"><h2>4 · Состояние</h2>
 <article class="node" tabindex="0" data-id="cache" data-flows="hourly,push,sbom,degraded" style="--accent:#64748b"><span class="type">Bounded + persistent</span><h3>Incremental cache</h3><p>Кэш source/build inputs с TTL</p></article>
-<article class="node" tabindex="0" data-id="postgres" data-flows="hourly,search,push,sbom,degraded" style="--accent:#3b82f6"><span class="type">PostgreSQL</span><h3>Graph + history</h3><p>Nodes, edges, scans, snapshots, outbox</p></article>
+<article class="node" tabindex="0" data-id="postgres" data-flows="hourly,search,push,sbom,degraded" style="--accent:#3b82f6"><span class="type">Внешний или встроенный PostgreSQL</span><h3>Graph + history</h3><p>Отдельная БД: nodes, edges, scans, snapshots, outbox</p></article>
 <article class="node" tabindex="0" data-id="alerts" data-flows="hourly,push,sbom,degraded" style="--accent:#fb7185"><span class="type">Outbox</span><h3>Webhook alerts</h3><p>degraded, recovered, outputs.changed</p></article></div>
 <div class="lane"><h2>5 · Выдача</h2>
 <article class="node" tabindex="0" data-id="api" data-flows="hourly,search,push,sbom,degraded" style="--accent:#6ee7a0"><span class="type">FastAPI</span><h3>Authenticated API</h3><p>Filters, refresh+CSRF, status, history</p></article>
@@ -51,7 +51,7 @@ const details={
 'cache':['Incremental cache','Не перечитывает неизменившиеся source/build inputs.','Хранилище','memory + PostgreSQL','Ограничение','TTL + max rows'],
 'visual-state':['Visual state + quality','Рассчитывает формы, цвета, active/stale и проблемы связей.','Output nodes','не создаются','Edges','серые'],
 'fallback':['Stale fallback','При отказе upstream сохраняет последнюю пригодную карту.','Статус','degraded','Нет данных','failed'],
-'postgres':['Graph + history','Хранит текущий граф, scans, snapshots, cache и webhook outbox.','Миграции','Alembic','Diff','snapshots'],
+'postgres':['Graph + history','Хранит текущий граф, scans, snapshots, cache и webhook outbox во встроенном либо внешнем PostgreSQL.','Миграции','Alembic','External DB','TLS required'],
 'alerts':['Webhook alerts','Outbox надёжно доставляет события с повторами.','События','degraded / recovered','Outputs','changed'],
 'api':['Authenticated API','Серверная фильтрация, refresh, status, snapshots и health.','Auth','root user','Headers','CSP + security'],
 'ui':['Интерактивная карта','Упорядочивает BB → TC → builds, ищет repo и показывает build details.','Начальный лимит','10 × 10','Обновление','автоматическое'],
