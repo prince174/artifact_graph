@@ -1,4 +1,7 @@
 import ssl
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -25,7 +28,8 @@ def production(monkeypatch):
                        "bitbucket_provider": "datacenter", "bitbucket_token": "reader", "teamcity_token": "reader",
                        "bitbucket_url": "https://bb/bitbucket", "teamcity_url": "https://tc/teamcity",
                        "teamcity_public_url": "https://public/teamcity", "registry_enabled": False,
-                       "tls_ca_file": ""}.items():
+                       "tls_ca_file": "", "database_mode": "external",
+                       "database_url": "postgresql+psycopg://user:dummy@db/graph?sslmode=verify-full"}.items():
         monkeypatch.setattr(security.settings, key, value)
 
 
@@ -51,3 +55,31 @@ def test_bad_corporate_ca_fails_closed(production, monkeypatch, tmp_path):
     monkeypatch.setattr(security.settings, "tls_ca_file", str(tmp_path / "missing.pem"))
     with pytest.raises(OSError):
         security.validate_runtime_settings()
+
+
+@pytest.mark.parametrize("query", ["", "sslmode=disable", "sslmode=require",
+    "sslmode=verify-full&sslmode=disable", "sslmode=verify-full&host=evil",
+    "sslmode=verify-full&service=other", "sslmode=verify-full&sslnegotiation=direct"])
+def test_external_database_rejects_unsafe_options(production, monkeypatch, query):
+    monkeypatch.setattr(security.settings, "database_url", "postgresql+psycopg://u:p@db/graph?" + query)
+    with pytest.raises(ValueError):
+        security.validate_database_settings()
+
+
+def test_internal_mode_is_restricted_to_bundled_database(production, monkeypatch):
+    monkeypatch.setattr(security.settings, "database_mode", "internal")
+    monkeypatch.setattr(security.settings, "database_url", "postgresql+psycopg://u:p@postgres/graph")
+    security.validate_database_settings()
+    monkeypatch.setattr(security.settings, "database_url", "postgresql+psycopg://u:p@external/graph")
+    with pytest.raises(ValueError):
+        security.validate_database_settings()
+
+
+def test_unsafe_database_rejected_before_engine_creation():
+    env = dict(os.environ, DEPLOYMENT_MODE="production", DATABASE_MODE="external",
+               DATABASE_URL="postgresql+psycopg://u:private-value@db/graph?sslmode=disable")
+    result = subprocess.run([sys.executable, "-c", "import app.models"], env=env,
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode != 0
+    assert "External database requires" in result.stderr
+    assert "private-value" not in result.stderr

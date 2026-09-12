@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     deployment_mode: str = "lab"
     tls_ca_file: str = ""
     database_url: str = "sqlite:///./graph.db"
+    database_mode: str = "external"
     refresh_minutes: int = 60
     scan_history_limit: int = 100
     incremental_cache_size: int = 2000

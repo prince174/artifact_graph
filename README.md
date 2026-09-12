@@ -57,6 +57,11 @@ flowchart LR
 
 ## Быстрый запуск production: внешние BB, TC и PostgreSQL
 
+Профиль внешней БД фиксирует `DATABASE_MODE=external`: приложение проверяет TLS до создания
+SQLAlchemy engine и Alembic-миграций, включая прямой запуск Compose. Допустимы `sslmode=verify-ca`
+и `verify-full`; параметры, переопределяющие сервер через libpq, запрещены. Режим `internal`
+используется только профилем встроенного сервиса `postgres`.
+
 Этот вариант запускает **только Artifact Graph**. Существующие Bitbucket Data Center, TeamCity и
 PostgreSQL сервис не создаёт, не перезапускает и не изменяет, кроме Alembic-миграций в выделенной
 для него базе. Перед запуском DBA должен создать отдельную database и login-role, разрешить соединение

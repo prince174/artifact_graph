@@ -2,6 +2,31 @@ import ssl
 from urllib.parse import urlsplit
 
 from .config import settings
+from sqlalchemy.engine import make_url
+
+
+def validate_database_settings():
+    if settings.deployment_mode != "production":
+        return
+    try:
+        url = make_url(settings.database_url)
+    except Exception:
+        raise ValueError("Invalid production DATABASE_URL") from None
+    if url.drivername != "postgresql+psycopg" or not all((url.host, url.username, url.password, url.database)):
+        raise ValueError("Production requires a complete PostgreSQL URL")
+    if settings.database_mode == "internal":
+        if url.host != "postgres" or url.port not in (None, 5432) or url.query:
+            raise ValueError("Internal database mode is restricted to the bundled postgres service")
+        return
+    if settings.database_mode != "external":
+        raise ValueError("DATABASE_MODE must be external or internal")
+    # Forbid libpq parameters that can override the validated endpoint or TLS.
+    if set(url.query) - {"sslmode", "sslrootcert", "connect_timeout", "application_name"}:
+        raise ValueError("Unsupported external database connection parameter")
+    if any(not isinstance(value, str) for value in url.query.values()):
+        raise ValueError("Duplicate database connection parameters are forbidden")
+    if url.query.get("sslmode") not in {"verify-ca", "verify-full"}:
+        raise ValueError("External database requires sslmode=verify-ca or verify-full")
 
 
 def tls_verification():
@@ -14,6 +39,7 @@ def tls_verification():
 
 
 def validate_runtime_settings():
+    validate_database_settings()
     if not 1 <= settings.teamcity_build_limit <= 100:
         raise ValueError("TEAMCITY_BUILD_LIMIT must be between 1 and 100")
     if settings.deployment_mode not in {"lab", "production"}:

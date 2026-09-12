@@ -2,6 +2,9 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from .config import settings
+from .transport_security import validate_database_settings
+
+validate_database_settings()
 
 
 class Base(DeclarativeBase):
