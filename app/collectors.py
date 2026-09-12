@@ -35,6 +35,25 @@ class RepositoryProvider(Protocol):
 
 
 class ApiClient:
+    async def bounded_text(self, path: str, max_bytes: int, **params) -> tuple[str | None, bool]:
+        """Bound the wire body; reject compression to avoid decompression bombs."""
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        async with self.client.stream("GET", self.url(path), params=params or None,
+                                      headers={"Accept-Encoding": "identity"}) as response:
+            if response.status_code == 404:
+                return None, False
+            response.raise_for_status()
+            if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+                raise httpx.DecodingError("Compressed source response is not supported", request=response.request)
+            content = bytearray()
+            async for chunk in response.aiter_bytes():
+                remaining = max_bytes + 1 - len(content)
+                content.extend(chunk[:remaining])
+                if len(content) > max_bytes:
+                    break
+            return bytes(content[:max_bytes]).decode("utf-8", errors="replace"), len(content) > max_bytes
+
     def __init__(self, base_url: str, token: str, *, basic_user: str = "", provider: str = "api"):
         self.provider = provider
         auth = httpx.BasicAuth(basic_user, token) if basic_user else None
@@ -142,15 +161,12 @@ class BitbucketDataCenterCollector(ApiClient):
         cache_key = (repository.project_key, repository.slug, path, at)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]
-        response = await self.client.get(
-            self.url(f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}/raw/{quote(path, safe='/')}"),
-            params={"at": at},
-        )
-        if response.status_code == 404:
-            self.file_cache[cache_key] = None
-            return None
-        response.raise_for_status()
-        self.file_cache[cache_key] = response.text
+        content, truncated = await self.bounded_text(
+            f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}/raw/{quote(path, safe='/')}",
+            2_000_000, at=at)
+        if truncated:
+            raise httpx.DecodingError("Repository source exceeds size limit")
+        self.file_cache[cache_key] = content
         return self.file_cache[cache_key]
 
 
@@ -188,12 +204,11 @@ class BitbucketCloudCollector(ApiClient):
         cache_key = (repository.slug, path, revision)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]
-        response = await self.client.get(self.url(f"/repositories/{self.workspace}/{repository.slug}/src/{quote(revision, safe='')}/{quote(path, safe='/')}"))
-        if response.status_code == 404:
-            self.file_cache[cache_key] = None
-            return None
-        response.raise_for_status()
-        self.file_cache[cache_key] = response.text
+        content, truncated = await self.bounded_text(
+            f"/repositories/{self.workspace}/{repository.slug}/src/{quote(revision, safe='')}/{quote(path, safe='/')}", 2_000_000)
+        if truncated:
+            raise httpx.DecodingError("Repository source exceeds size limit")
+        self.file_cache[cache_key] = content
         return self.file_cache[cache_key]
 
 
@@ -272,12 +287,7 @@ class TeamCityCollector(ApiClient):
         return files
 
     async def artifact_content(self, href: str, max_bytes: int = 2_000_000) -> tuple[str | None, bool]:
-        response = await self.client.get(self.url(href))
-        if response.status_code == 404:
-            return None, False
-        response.raise_for_status()
-        content = response.content
-        return content[:max_bytes].decode("utf-8", errors="replace"), len(content) > max_bytes
+        return await self.bounded_text(href, max_bytes)
 
 
 def repository_provider() -> RepositoryProvider:
