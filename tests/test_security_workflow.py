@@ -20,7 +20,7 @@ def test_security_scan_runs_daily_and_on_demand_with_read_only_repository_access
     assert workflow["permissions"] == {"contents": "read"}
 
 
-def test_security_scan_reports_every_finding_but_blocks_only_fixable_highs():
+def test_security_scan_reports_and_blocks_all_highs_including_unfixed():
     workflow = load_workflow()
     steps = workflow["jobs"]["container-vulnerabilities"]["steps"]
     assert steps[0]["uses"] == "actions/checkout@v5"
@@ -38,7 +38,7 @@ def test_security_scan_reports_every_finding_but_blocks_only_fixable_highs():
         "format": "table",
         "output": "trivy-all-high-critical.txt",
     }
-    assert gate["with"]["ignore-unfixed"] == "true"
+    assert gate["with"]["ignore-unfixed"] == "false"
     assert gate["with"]["exit-code"] == "1"
     assert gate["with"]["severity"] == "CRITICAL,HIGH"
     upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v6")

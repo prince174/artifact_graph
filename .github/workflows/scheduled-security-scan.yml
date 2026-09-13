@@ -28,7 +28,7 @@ jobs:
           exit-code: 0
           format: table
           output: trivy-all-high-critical.txt
-      - name: Fail when a fixable High or Critical vulnerability remains
+      - name: Fail when any High or Critical vulnerability remains
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
@@ -36,7 +36,7 @@ jobs:
           image-ref: artifact-graph:security-scan
           scanners: vuln
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
+          ignore-unfixed: false
           exit-code: 1
           format: table
           output: trivy-fixable-high-critical.txt

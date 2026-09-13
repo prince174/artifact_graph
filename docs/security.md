@@ -36,21 +36,30 @@ default branch and retains two Trivy reports for 30 days:
 
 - `trivy-all-high-critical.txt` is the complete High/Critical inventory,
   including findings without an upstream fix;
-- `trivy-fixable-high-critical.txt` fails the workflow if a High/Critical issue
-  with an available fix is still present in the freshly built image.
+- `trivy-fixable-high-critical.txt` (legacy filename) now fails the workflow for
+  any High/Critical issue, including findings without an available fix.
 
-The split is intentional: an unfixable upstream advisory remains visible without
-making every scheduled run fail. A red scheduled workflow means maintainers must
+Both reports include unfixable findings; these are no longer excluded from the gate.
+A red scheduled workflow means maintainers must
 rebuild or update the affected dependency and rerun the workflow. GitHub sends
 failure notifications according to each maintainer's repository notification
 settings. Use **Actions → scheduled-security-scan → Run workflow** to verify a
 base-image or dependency update immediately instead of waiting for the next run.
 
-## Remaining upstream advisory (2026-09-08)
+## Проверка от 2026-09-13
 
-Docker Scout reports CVE-2026-85091 for Debian's zlib package. Debian currently
-lists no fixed package. The reported trigger involves non-blocking gzwrite and
-gzprintf; exploitability through this application has not been demonstrated.
-Do not treat this as a clean image scan or silently suppress it. Rebuild and
-rescan after Debian publishes an update:
-https://security-tracker.debian.org/tracker/CVE-2026-85091
+Runtime переведён с Debian slim на Python 3.12 Alpine. В старом образе Trivy
+обнаруживал 56 High/Critical записей; новый образ проверен Trivy 0.74.0 по всем
+уровням серьёзности: известных уязвимостей не найдено. Это результат конкретного
+сканирования, а не гарантия отсутствия будущих CVE. При обновлении образа повторяйте
+сборку, сканирование, миграции и browser E2E. Данные PostgreSQL от смены образа
+приложения не меняют формат.
+
+SBOM и исходники BB читаются потоком с лимитом 2 MB; слишком большой источник
+не анализируется как полный файл. Сжатые ответы на эти запросы отклоняются.
+Внешний PostgreSQL проверяется до создания engine и миграций, требует verify-ca
+или verify-full. Метрики доступны по веб-сессии либо отдельному METRICS_TOKEN.
+
+Во вспомогательном тестовом контейнере pip обновлён до 26.2.1; повторный pip-audit
+не нашёл известных уязвимостей. При ручном создании тестового окружения сначала
+обновляйте pip до версии из CI. Runtime-образ удаляет pip после установки зависимостей.
