@@ -17,7 +17,7 @@ from .config import settings
 log = logging.getLogger("artifact_graph.auth")
 COOKIE = "artifact_graph_session"
 MAX_LOGIN_BYTES = 8192
-PUBLIC_PATHS = {"/login", "/health/live", "/health/ready", "/metrics"}
+PUBLIC_PATHS = {"/login", "/health/live", "/health/ready"}
 LOGIN_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Artifact Graph — вход</title><style>body{margin:0;background:#0d1117;color:#e6edf3;font:15px system-ui;display:grid;place-items:center;height:100vh}form{width:320px;padding:28px;background:#161b22;border:1px solid #30363d;border-radius:10px}input,button{box-sizing:border-box;width:100%;padding:11px;margin-top:12px;border-radius:7px}input{background:#0d1117;color:white;border:1px solid #30363d}button{background:#238636;color:white;border:0;font-weight:700}.error{color:#e99a95}</style></head><body><form method="post" action="/login"><h2>Artifact Graph</h2><p>Войдите для просмотра карты.</p>{error}<input name="username" autocomplete="username" placeholder="Пользователь" required autofocus><input name="password" type="password" autocomplete="current-password" placeholder="Пароль" required><button type="submit">Войти</button></form></body></html>"""
 
 
@@ -105,9 +105,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.scope["path"]
         if not settings.web_auth_enabled or path in PUBLIC_PATHS or path.startswith("/static/"):
             return await call_next(request)
+        if path == "/metrics" and request.method in {"GET", "HEAD"} and settings.metrics_token:
+            supplied = request.headers.get("authorization", "")
+            if hmac.compare_digest(supplied.encode(), ("Bearer " + settings.metrics_token).encode()):
+                response = await call_next(request)
+                response.headers["Cache-Control"] = "no-store"
+                return response
         session = read_session(request.cookies.get(COOKIE))
         if not session:
-            if path.startswith("/api/"):
+            if path.startswith("/api/") or path == "/metrics":
                 return JSONResponse({"detail": "Authentication required"}, status_code=401)
             return RedirectResponse("/login", status_code=303)
         request.state.session = session

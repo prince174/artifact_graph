@@ -42,6 +42,7 @@ services:
       VERIFY_TLS: "true"
       TLS_CA_FILE: ${TLS_CA_FILE:-}
       WEB_AUTH_ENABLED: "true"
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       WEB_USERNAME: ${WEB_USERNAME:-root}
       WEB_PASSWORD: ${WEB_PASSWORD:?Set WEB_PASSWORD in .env.prod}
       WEB_SESSION_HOURS: ${WEB_SESSION_HOURS:-12}

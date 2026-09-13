@@ -52,6 +52,8 @@ def validate_runtime_settings():
         raise ValueError("Production requires TLS verification, web authentication and Secure cookies")
     if len(settings.web_password) < 32:
         raise ValueError("Production WEB_PASSWORD must contain at least 32 characters")
+    if settings.metrics_token and (len(settings.metrics_token) < 32 or settings.metrics_token == settings.web_password):
+        raise ValueError("METRICS_TOKEN must be a separate secret of at least 32 characters")
     if not settings.bitbucket_token or not settings.teamcity_token:
         raise ValueError("Production requires read-only Bitbucket and TeamCity tokens")
     urls = {"TEAMCITY_URL": settings.teamcity_url, "TEAMCITY_PUBLIC_URL": settings.teamcity_public_url}

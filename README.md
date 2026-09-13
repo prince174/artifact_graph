@@ -17,6 +17,11 @@ Bitbucket подключается через общий контракт `Repos
 
 ## Схема работы сервиса
 
+`/metrics` требует веб-сессию либо отдельный `Authorization: Bearer <METRICS_TOKEN>`.
+Для Prometheus задайте в `.env.prod` случайный `METRICS_TOKEN` (минимум 32 символа)
+и используйте `authorization.credentials_file` в scrape-конфигурации. Токен даёт доступ
+только к метрикам; если он не задан, доступ возможен только через веб-сессию.
+
 ```mermaid
 flowchart LR
     S[Планировщик: startup / ручной / раз в час]

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     registry_token: str = ""
     verify_tls: bool = True
     web_auth_enabled: bool = True
+    metrics_token: str = ""
     web_username: str = "root"
     web_password: str = ""
     web_session_hours: int = 12

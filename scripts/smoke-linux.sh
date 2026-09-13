@@ -121,5 +121,5 @@ if any(node.get("stale") for node in graph["nodes"]):
     sys.exit("Graph still contains stale nodes")
 print("Graph and fresh successful scan verified")
 '
-curl "${curl_args[@]}" -fsS "$base_url/metrics" | grep '^artifact_graph_nodes ' >/dev/null
+curl "${curl_args[@]}" -fsS -b "$cookie_jar" "$base_url/metrics" | grep '^artifact_graph_nodes ' >/dev/null
 echo "smoke successful"

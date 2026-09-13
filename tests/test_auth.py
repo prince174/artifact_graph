@@ -29,6 +29,31 @@ def test_expired_session_is_rejected(monkeypatch):
     assert auth.read_session(token) is None
 
 
+@pytest.mark.asyncio
+async def test_metrics_requires_session_or_scoped_token(monkeypatch):
+    monkeypatch.setattr(auth.settings, "web_auth_enabled", True)
+    monkeypatch.setattr(auth.settings, "metrics_token", "m" * 32)
+    app = FastAPI()
+    app.add_middleware(auth.AuthMiddleware)
+    @app.get("/metrics")
+    def metrics():
+        return {"metrics": True}
+    @app.get("/api/data")
+    def data():
+        return {"private": True}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+        assert (await client.get("/metrics")).status_code == 401
+        assert (await client.get("/metrics", headers={"Authorization": "Bearer wrong"})).status_code == 401
+        headers = {"Authorization": "Bearer " + "m" * 32}
+        assert (await client.get("/metrics", headers=headers)).status_code == 200
+        assert (await client.get("/api/data", headers=headers)).status_code == 401
+        client.cookies.set(auth.COOKIE, auth.issue_session("root")[0])
+        assert (await client.get("/metrics")).status_code == 200
+        client.cookies.clear()
+        monkeypatch.setattr(auth.settings, "metrics_token", "")
+        assert (await client.get("/metrics", headers={"Authorization": "Bearer "})).status_code == 401
+
+
 def test_login_limiter_expires_attempts(monkeypatch):
     limiter = auth.LoginLimiter()
     monkeypatch.setattr(auth.settings, "web_login_attempts", 2)
