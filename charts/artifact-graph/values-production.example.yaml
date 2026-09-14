@@ -1,0 +1,17 @@
+# Fill these before installation. Secrets and CA must already exist in the namespace.
+image:
+  repository: "" # internal registry path
+  digest: "" # sha256:...
+existingSecret: artifact-graph-runtime
+migrationSecret: artifact-graph-migrations
+caConfigMap: artifact-graph-ca
+config:
+  BITBUCKET_URL: ""
+  TEAMCITY_URL: ""
+  TEAMCITY_PUBLIC_URL: ""
+  TLS_CA_FILE: /app/certs/company-ca.pem
+ingress:
+  enabled: true
+  className: ""
+  host: ""
+  tlsSecretName: ""

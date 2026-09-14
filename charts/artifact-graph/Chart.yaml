@@ -1,0 +1,7 @@
+apiVersion: v2
+name: artifact-graph
+description: Single-replica Artifact Graph with external Bitbucket, TeamCity and PostgreSQL
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+kubeVersion: ">=1.28.0-0"

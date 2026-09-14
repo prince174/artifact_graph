@@ -1,4 +1,5 @@
 .git
+.local-k8s
 .env*
 config/certs
 .venv*

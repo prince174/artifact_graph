@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ag.name" . }}
+  labels:
+    {{- include "ag.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: web
+      {{- include "ag.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: web
+        {{- include "ag.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        {{- include "ag.security" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: graph
+          image: {{ include "ag.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            {{- include "ag.containerSecurity" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "ag.name" . }}
+          env:
+            {{- range $key := list "DATABASE_URL" "BITBUCKET_TOKEN" "TEAMCITY_TOKEN" "WEB_PASSWORD" "METRICS_TOKEN" "WEBHOOK_SECRET" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "existingSecret is required" $.Values.existingSecret }}
+                  key: {{ $key }}
+                  optional: {{ has $key (list "METRICS_TOKEN" "WEBHOOK_SECRET") }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          startupProbe:
+            httpGet: {path: /health/live, port: http}
+            timeoutSeconds: 3
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: rules, mountPath: /app/config, readOnly: true}
+            {{- if .Values.caConfigMap }}
+            - {name: ca, mountPath: /app/certs, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        - name: rules
+          configMap:
+            name: {{ include "ag.name" . }}-rules
+        {{- if .Values.caConfigMap }}
+        - name: ca
+          configMap:
+            name: {{ .Values.caConfigMap }}
+        {{- end }}

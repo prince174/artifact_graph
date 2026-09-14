@@ -17,6 +17,9 @@ Bitbucket подключается через общий контракт `Repos
 
 ## Схема работы сервиса
 
+Развёртывание в Kubernetes через Helm (одна реплика, без HPA), миграции отдельным
+Job, обновление и локальный kind-тест: [docs/kubernetes.md](docs/kubernetes.md).
+
 `/metrics` требует веб-сессию либо отдельный `Authorization: Bearer <METRICS_TOKEN>`.
 Для Prometheus задайте в `.env.prod` случайный `METRICS_TOKEN` (минимум 32 символа)
 и используйте `authorization.credentials_file` в scrape-конфигурации. Токен даёт доступ

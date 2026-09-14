@@ -1,0 +1,11 @@
+# Only isolated kind test: demo data, HTTP port-forward, throwaway PostgreSQL.
+image:
+  repository: artifact-graph
+  tag: k8s-test
+  pullPolicy: Never
+existingSecret: artifact-graph-local
+config:
+  APP_MODE: demo
+  DEPLOYMENT_MODE: lab
+  DATABASE_MODE: external
+  WEB_COOKIE_SECURE: "false"

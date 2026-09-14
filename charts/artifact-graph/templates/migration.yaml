@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ag.name" . }}-migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: migration
+        {{- include "ag.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "ag.security" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "ag.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          securityContext:
+            {{- include "ag.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default .Values.existingSecret .Values.migrationSecret | required "migrationSecret or existingSecret is required" }}
+                  key: DATABASE_URL
+            - name: DEPLOYMENT_MODE
+              value: {{ .Values.config.DEPLOYMENT_MODE | quote }}
+            - name: DATABASE_MODE
+              value: {{ .Values.config.DATABASE_MODE | quote }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if .Values.caConfigMap }}
+            - {name: ca, mountPath: /app/certs, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- if .Values.caConfigMap }}
+        - name: ca
+          configMap:
+            name: {{ .Values.caConfigMap }}
+        {{- end }}

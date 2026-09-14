@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "replicaCount": {"const": 1},
+    "autoscaling": {"type": "object", "properties": {"enabled": {"const": false}}},
+    "existingSecret": {"type": "string", "minLength": 1},
+    "image": {"type": "object", "properties": {
+      "repository": {"type": "string", "minLength": 1},
+      "pullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
+      "digest": {"type": "string", "pattern": "^(|sha256:[a-f0-9]{64})$"}
+    }},
+    "config": {
+      "type": "object",
+      "propertyNames": {"not": {"enum": ["DATABASE_URL", "BITBUCKET_TOKEN", "TEAMCITY_TOKEN", "WEB_PASSWORD", "METRICS_TOKEN", "WEBHOOK_SECRET", "MAPPING_RULES_PATH"]}},
+      "properties": {"DEPLOYMENT_MODE": {"enum": ["lab", "production"]}},
+      "if": {"properties": {"DEPLOYMENT_MODE": {"const": "production"}}},
+      "then": {"properties": {
+        "APP_MODE": {"const": "live"}, "DATABASE_MODE": {"const": "external"},
+        "VERIFY_TLS": {"const": "true"}, "WEB_AUTH_ENABLED": {"const": "true"},
+        "WEB_COOKIE_SECURE": {"const": "true"},
+        "BITBUCKET_URL": {"type": "string", "pattern": "^https://[^ /]+"},
+        "TEAMCITY_URL": {"type": "string", "pattern": "^https://[^ /]+"},
+        "TEAMCITY_PUBLIC_URL": {"type": "string", "pattern": "^https://[^ /]+"}
+      }}
+    }
+  }
+}

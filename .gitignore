@@ -16,3 +16,4 @@ atlassian-extras-decoder-*.jar
 backups/
 *.dump
 test-results/
+.local-k8s/

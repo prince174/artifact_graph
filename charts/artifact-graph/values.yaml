@@ -1,0 +1,54 @@
+# Mandatory: choose your registry and immutable image tag (or digest).
+image:
+  repository: ""
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+# Pre-create Secrets; chart never stores credentials in Helm release values.
+existingSecret: ""
+migrationSecret: "" # defaults to existingSecret; can contain only DATABASE_URL
+caConfigMap: "" # optional existing ConfigMap, files mounted at /app/certs
+config:
+  APP_MODE: live
+  DEPLOYMENT_MODE: production
+  DATABASE_MODE: external
+  BITBUCKET_PROVIDER: datacenter
+  BITBUCKET_URL: ""
+  TEAMCITY_URL: ""
+  TEAMCITY_PUBLIC_URL: ""
+  TEAMCITY_BUILD_LIMIT: "5"
+  REFRESH_MINUTES: "60"
+  REGISTRY_ENABLED: "false"
+  VERIFY_TLS: "true"
+  TLS_CA_FILE: ""
+  WEB_AUTH_ENABLED: "true"
+  WEB_COOKIE_SECURE: "true"
+  WEB_USERNAME: root
+  WEBHOOK_ENABLED: "false"
+mappingRules:
+  version: 1
+  mappings: []
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+startupProbe:
+  periodSeconds: 10
+  failureThreshold: 180
+migration:
+  activeDeadlineSeconds: 600
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tlsSecretName: ""
+  annotations: {}
+# Optional: policies must match the actual CNI and destination CIDRs/namespaces.
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
