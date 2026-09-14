@@ -54,9 +54,53 @@ jobs:
           if-no-files-found: ignore
       - if: always()
         run: docker compose -f compose.e2e.yaml down --volumes --remove-orphans
+  kubernetes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install pinned Helm and kind with checksum verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSLO https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz
+          curl -fsSLO https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz.sha256sum
+          sha256sum --check helm-v3.19.0-linux-amd64.tar.gz.sha256sum
+          tar -xzf helm-v3.19.0-linux-amd64.tar.gz
+          sudo install linux-amd64/helm /usr/local/bin/helm
+          curl -fsSLo kind-linux-amd64 https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          curl -fsSLO https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64.sha256sum
+          sha256sum --check kind-linux-amd64.sha256sum
+          sudo install kind-linux-amd64 /usr/local/bin/kind
+      - name: Validate chart and rendered workload contracts
+        run: |
+          python -m pip install pip==26.2.1 pytest==9.1.1 PyYAML==6.0.2
+          helm lint charts/artifact-graph -f charts/artifact-graph/values-local.yaml
+          python -m pytest -o addopts='' -q tests/test_helm.py
+      - name: Install, upgrade and test pod recovery in kind
+        run: python -u scripts/k8s-local.py
+      - name: Collect non-secret diagnostics
+        if: failure()
+        run: |
+          mkdir -p test-results/kubernetes
+          kubectl --kubeconfig .local-k8s/config -n artifact-graph-test get pods,jobs,events > test-results/kubernetes/status.txt 2>&1 || true
+          kubectl --kubeconfig .local-k8s/config -n artifact-graph-test logs deployment/local-graph --tail=100 > test-results/kubernetes/app.log 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: kubernetes-diagnostics
+          path: test-results/kubernetes
+      - name: Delete isolated CI cluster
+        if: always()
+        run: kind delete cluster --name artifact-graph-test --kubeconfig .local-k8s/config
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, browser-e2e]
+    needs: [test, browser-e2e, kubernetes]
     runs-on: ubuntu-latest
     permissions: {contents: read, packages: write, id-token: write, attestations: write}
     steps:

@@ -109,6 +109,8 @@ def main():
         kube("wait", "--for=delete", "pod", "-l", "app.kubernetes.io/instance=local", "--timeout=120s")
     chart = "charts/artifact-graph"
     values = chart + "/values-local.yaml"
+    rendered = helm("template", "local", chart, "-f", values, capture=True).stdout
+    kube("apply", "--dry-run=server", "-f", "-", data=rendered, capture=True)
     helm("upgrade", "--install", "local", chart, "-f", values, "--wait", "--timeout", "10m")
     before = probe()
     pod = json.loads(kube("get", "pods", "-l", "app.kubernetes.io/instance=local", "-o", "json", capture=True).stdout)["items"][0]
