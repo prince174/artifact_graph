@@ -2,6 +2,12 @@
 
 Интерактивная схема компонентов и потоков данных: откройте
 [`service-architecture.html`](service-architecture.html) локально в браузере.
+Редактируемая схема: [`service-architecture.drawio`](service-architecture.drawio) —
+откройте в draw.io Desktop или импортируйте в diagrams.net. Две страницы:
+«Потоки данных» и «Kubernetes production». HTML работает без сети и CDN:
+поиск компонентов, выбор сценария, карточки по клику/Enter, сброс по Esc.
+Это документация архитектуры, а не живая карта репозиториев: за актуальными
+билдами нужно открыть веб-интерфейс запущенного сервиса.
 
 Python-сервис строит интерактивный граф `Bitbucket project/repository → TeamCity project/build configuration → build`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в

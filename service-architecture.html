@@ -13,7 +13,7 @@
 <div class="lane"><h2>1 · Источники</h2>
 <article class="node" tabindex="0" data-id="bb-cloud" data-flows="hourly,search,push,sbom,degraded" style="--accent:#2684ff"><span class="type">Bitbucket Cloud</span><h3>Workspace / repositories</h3><p>REST 2.0, API token, исходники RO</p></article>
 <article class="node" tabindex="0" data-id="bb-dc" data-flows="hourly,search,push,sbom,degraded" style="--accent:#2684ff"><span class="type">Bitbucket Data Center</span><h3>Projects / repositories</h3><p>REST 1.0, Bearer token, общий контракт</p></article>
-<article class="node" tabindex="0" data-id="teamcity" data-flows="hourly,search,push,sbom,degraded" style="--accent:#f5c451"><span class="type">TeamCity</span><h3>Projects → configs → builds</h3><p>Последние 5 билдов, логи и artifacts</p></article>
+<article class="node" tabindex="0" data-id="teamcity" data-flows="hourly,search,push,sbom,degraded" style="--accent:#f5c451"><span class="type">TeamCity</span><h3>Projects → configs → builds</h3><p>Последние N билдов, логи и artifacts</p></article>
 <article class="node" tabindex="0" data-id="registry" data-flows="hourly,push,degraded" style="--accent:#a78bfa"><span class="type">Docker / Nexus</span><h3>OCI Registry API v2</h3><p>Manifest и digest найденных образов</p></article></div>
 <div class="lane"><h2>2 · Получение</h2>
 <article class="node" tabindex="0" data-id="scheduler" data-flows="hourly" style="--accent:#f5c451"><span class="type">APScheduler</span><h3>Refresh coordinator</h3><p>Startup, 60 минут, ручной refresh + lock</p></article>
@@ -41,7 +41,7 @@ const edges=[
 const details={
 'bb-cloud':['Bitbucket Cloud','Cloud REST 2.0; workspace и репозитории читаются read-only токеном.','Контракт','RepositoryProvider','Секрет','API token'],
 'bb-dc':['Bitbucket Data Center','REST 1.0 для пользовательских проектов, репозиториев и файлов.','Версия','8.19.3+','Секрет','Bearer RO'],
-'teamcity':['TeamCity','Проекты, build configurations и последние запуски каждой конфигурации.','История','5 builds / config','Входы','logs + artifacts'],
+'teamcity':['TeamCity','Проекты, build configurations и последние запуски каждой конфигурации. TEAMCITY_BUILD_LIMIT: 3 по умолчанию в lab, 5 в production-примере.','История','N builds / config','Входы','logs + artifacts'],
 'scheduler':['Refresh coordinator','Startup scan, расписание и ручной запрос проходят через один lock.','Интервал','60 минут','Manual','POST + CSRF'],
 'repo-provider':['RepositoryProvider','Общий adapter скрывает различия Cloud и Data Center.','Выход','Repository','Защита','origin-bound auth'],
 'tc-collector':['TeamCityCollector','Собирает VCS roots, steps, параметры, builds, logs и artifacts.','Доступ','read-only','Пагинация','включена'],
@@ -55,8 +55,11 @@ const details={
 'alerts':['Webhook alerts','Outbox надёжно доставляет события с повторами.','События','degraded / recovered','Outputs','changed'],
 'api':['Authenticated API','Серверная фильтрация, refresh, status, snapshots и health.','Auth','root user','Headers','CSP + security'],
 'ui':['Интерактивная карта','Упорядочивает BB → TC → builds, ищет repo и показывает build details.','Начальный лимит','10 × 10','Обновление','автоматическое'],
-'observability':['Health + Prometheus','Readiness, возраст scan и provider retries/failures.','Endpoints','/health, /metrics','Ошибки','без секретов'],
-'registry':['OCI registry','Docker/Nexus источник manifest и digest.','Prod','HTTPS + auth','Lab','loopback']};
+'observability':['Health + Prometheus','/health/live и /health/ready — пробы. /metrics требует веб-сессию либо отдельный METRICS_TOKEN.','Endpoints','/health/live, /health/ready','Metrics','session / Bearer'],
+'registry':['OCI registry','Docker/Nexus источник manifest и digest. Опционально: REGISTRY_ENABLED=false по умолчанию.','Prod','HTTPS + auth','Включение','REGISTRY_ENABLED'],
+'deployment':['Kubernetes / Helm','Одна реплика Deployment, стратегия Recreate, без HPA. Перед upgrade старый web Pod останавливают; migration Job выполняет Alembic до запуска новой версии. При рестарте Pod запускается новый scan, но не миграции. Внешняя БД сохраняет историю.','Миграции','pre-install / pre-upgrade','Подключения','Secrets + ConfigMap + CA']};
+const deployment=document.createElement('article');deployment.className='node';deployment.tabIndex=0;deployment.dataset.id='deployment';deployment.dataset.flows='hourly,degraded';deployment.innerHTML='<span class="type">Kubernetes / Helm</span><h3>Deployment + migration Job</h3><p>1 replica · без HPA · внешние DB/BB/TC</p>';document.querySelector('.lane:last-child').append(deployment);
+const guide=document.createElement('p');guide.textContent='Это автономная документация, не live-статус. Редактируемая схема: ';const download=document.createElement('a');download.href='service-architecture.drawio';download.textContent='service-architecture.drawio (2 страницы)';download.style.color='#83ddd3';guide.append(download);document.querySelector('.contract').append(guide);
 const board=document.querySelector('.board'),layer=document.getElementById('edgeLayer'),nodes=[...document.querySelectorAll('.node')];let scenario='all';const findNode=id=>document.querySelector(`[data-id="${id}"]`);
 function curve(a,b){const r=board.getBoundingClientRect(),x1=a.right-r.left,y1=a.top+a.height/2-r.top,x2=b.left-r.left,y2=b.top+b.height/2-r.top,d=Math.max(25,(x2-x1)*.4);return `M${x1},${y1}C${x1+d},${y1} ${x2-d},${y2} ${x2},${y2}`}
 function draw(){layer.innerHTML='';const ns='http://www.w3.org/2000/svg',br=board.getBoundingClientRect();for(const [from,to,label,flows] of edges){const a=findNode(from)?.getBoundingClientRect(),b=findNode(to)?.getBoundingClientRect();if(!a||!b||!a.width||!b.width)continue;const active=scenario==='all'||flows.split(',').includes(scenario),p=document.createElementNS(ns,'path');p.setAttribute('d',curve(a,b));p.setAttribute('class',`edge ${active?'path':'dim'}`);p.setAttribute('marker-end',`url(#${active?'arrowActive':'arrow'})`);layer.append(p);if(active&&scenario!=='all'){const t=document.createElementNS(ns,'text');t.setAttribute('class','edge-label');t.setAttribute('x',(a.right+b.left)/2-br.left);t.setAttribute('y',(a.top+a.height/2+b.top+b.height/2)/2-br.top-5);t.textContent=label;layer.append(t)}}}
