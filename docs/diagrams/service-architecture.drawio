@@ -1,0 +1,129 @@
+<mxfile host="Electron" pages="2">
+  <diagram id="data-flow" name="Потоки данных">
+    <mxGraphModel dx="1488" dy="885" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="e9" edge="1" parent="1" source="db" style="edgeStyle=orthogonalEdgeStyle;exitX=0;exitY=0.8;" target="alerts" value="events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="title" parent="1" style="text;html=0;fontSize=20;" value="Artifact Graph · источники только RO · push/SBOM — признаки билдов, не отдельные узлы" vertex="1">
+          <mxGeometry height="50" width="1400" x="30" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="bb" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;" value="Bitbucket Cloud / Data Center&#xa;REST · проекты, репозитории, исходники&#xa;RO token" vertex="1">
+          <mxGeometry height="100" width="260" x="30" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="tc" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;" value="TeamCity · REST · RO token&#xa;Проекты, configs, VCS roots&#xa;Последние N билдов, logs, artifacts" vertex="1">
+          <mxGeometry height="100" width="260" x="30" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="scan" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;" value="Координатор refresh + lock&#xa;Startup / REFRESH_MINUTES / manual + CSRF" vertex="1">
+          <mxGeometry height="70" width="280" x="350" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="collect" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;" value="RepositoryProvider + TeamCityCollector&#xa;Пагинация, origin-bound auth&#xa;Кэш ревизий и входов билдов" vertex="1">
+          <mxGeometry height="110" width="280" x="350" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="analyze" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;" value="Mapping + анализ&#xa;clone URL ↔ VCS root + mapping rules&#xa;pom.xml / Gradle / npm / scripts&#xa;Push: доказательства из build log&#xa;SBOM: опубликованный artifact" vertex="1">
+          <mxGeometry height="150" width="300" x="710" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="db" parent="1" style="shape=cylinder;whiteSpace=wrap;fillColor=#dae8fc;" value="PostgreSQL · отдельная БД сервиса&#xa;Граф, scans, snapshots, cache, outbox&#xa;При отказе upstream: stale fallback" vertex="1">
+          <mxGeometry height="140" width="310" x="1100" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="registry" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;" value="Опциональный RegistryCollector&#xa;Docker / Nexus · manifest / digest&#xa;REGISTRY_ENABLED=false по умолчанию" vertex="1">
+          <mxGeometry height="100" width="320" x="700" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="api" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;" value="FastAPI · session auth&#xa;Фильтры / status / history / diff&#xa;/metrics: session или METRICS_TOKEN" vertex="1">
+          <mxGeometry height="100" width="310" x="1100" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="ui" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;" value="Браузер · Cytoscape&#xa;BB project → repo → TC project → config → build&#xa;Поиск, 10×10, цвета push/SBOM, детали" vertex="1">
+          <mxGeometry height="100" width="370" x="1070" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="alerts" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;" value="Опциональные webhook alerts&#xa;Outbox + повторы доставки" vertex="1">
+          <mxGeometry height="80" width="300" x="710" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="bb" style="edgeStyle=orthogonalEdgeStyle;" target="collect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="tc" style="edgeStyle=orthogonalEdgeStyle;" target="collect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="scan" style="edgeStyle=orthogonalEdgeStyle;" target="collect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="collect" style="edgeStyle=orthogonalEdgeStyle;" target="analyze">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="analyze" style="edgeStyle=orthogonalEdgeStyle;" target="db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="analyze" style="edgeStyle=orthogonalEdgeStyle;startArrow=classic;" target="registry" value="image refs / enrichment">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="db" style="edgeStyle=orthogonalEdgeStyle;" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;" target="ui" value="JSON">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="kubernetes" name="Kubernetes production">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" page="1" pageWidth="1500" pageHeight="1000">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Kubernetes · одна реплика · без HPA · внешние BB, TC и PostgreSQL" style="text;fontSize=22;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1300" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="client" value="Браузер пользователя" style="rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ingress" value="Ingress TLS (опционально)&#xa;Service ClusterIP :8080" style="rounded=1;fillColor=#dae8fc;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="310" y="200" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="app" value="Deployment · replicas: 1 · Recreate&#xa;Pod: FastAPI + scheduler + collectors&#xa;non-root / read-only filesystem&#xa;startup, readiness, liveness probes" style="rounded=1;fillColor=#d5e8d4;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="660" y="170" width="340" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="upstream" value="Существующие Bitbucket DC + TeamCity&#xa;HTTPS / корпоративный CA / RO tokens" style="rounded=1;fillColor=#fff2cc;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="160" width="350" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="Внешний PostgreSQL&#xa;Отдельная database Artifact Graph&#xa;TLS verify-full или verify-ca&#xa;Граф сохраняется при пересоздании Pod" style="shape=cylinder;fillColor=#dae8fc;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="430" width="350" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="config" value="ConfigMap: URLs, provider, interval&#xa;Заранее созданный runtime Secret:&#xa;DATABASE_URL, BB/TC tokens, WEB_PASSWORD&#xa;CA ConfigMap → /app/certs" style="rounded=1;fillColor=#e1d5e7;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="660" y="410" width="340" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="helm" value="Helm install / upgrade&#xa;Перед upgrade: остановить старый web Pod&#xa;Миграция завершилась → запуск Deployment" style="rounded=1;fillColor=#fff2cc;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="670" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="migration" value="Migration Job · Alembic&#xa;pre-install / pre-upgrade&#xa;Отдельный migration Secret: только DB URL&#xa;Ошибка миграции блокирует выпуск" style="rounded=1;fillColor=#fff2cc;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="660" y="670" width="340" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="recovery" value="Сбой контейнера: kubelet перезапускает&#xa;Потеря Pod: Deployment создаёт новый&#xa;Startup scan выполняется заново&#xa;Миграции НЕ выполняются при каждом рестарте&#xa;Backup/PITR внешней БД обеспечивает DBA" style="text;whiteSpace=wrap;align=left;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="40" y="370" width="510" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="client" target="ingress" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="ingress" target="app" style="edgeStyle=orthogonalEdgeStyle;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="app" target="upstream" value="RO REST" style="edgeStyle=orthogonalEdgeStyle;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="app" target="db" value="read/write" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.9;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="config" target="app" style="edgeStyle=orthogonalEdgeStyle;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="helm" target="migration" style="edgeStyle=orthogonalEdgeStyle;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="migration" target="db" value="DDL" style="edgeStyle=orthogonalEdgeStyle;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

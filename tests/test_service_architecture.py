@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-DIAGRAM = Path(__file__).parents[1] / "service-architecture.html"
+DIAGRAM = Path(__file__).parents[1] / "docs" / "diagrams" / "service-architecture.html"
 
 
 def source():
@@ -77,3 +77,5 @@ def test_architecture_documents_deployment_and_links():
     readme = (DIAGRAM.parent / 'README.md').read_text(encoding='utf-8')
     assert '(service-architecture.drawio)' in readme
     assert '(service-architecture.html)' in readme
+    main_readme = (DIAGRAM.parents[2] / 'README.md').read_text(encoding='utf-8')
+    assert '(docs/diagrams/README.md)' in main_readme

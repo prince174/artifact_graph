@@ -1,13 +1,8 @@
 # Artefact Graph
 
-Интерактивная схема компонентов и потоков данных: откройте
-[`service-architecture.html`](service-architecture.html) локально в браузере.
-Редактируемая схема: [`service-architecture.drawio`](service-architecture.drawio) —
-откройте в draw.io Desktop или импортируйте в diagrams.net. Две страницы:
-«Потоки данных» и «Kubernetes production». HTML работает без сети и CDN:
-поиск компонентов, выбор сценария, карточки по клику/Enter, сброс по Esc.
-Это документация архитектуры, а не живая карта репозиториев: за актуальными
-билдами нужно открыть веб-интерфейс запущенного сервиса.
+Все отдельные схемы находятся в [`docs/diagrams`](docs/diagrams/README.md):
+редактируемая draw.io и автономная интерактивная HTML-карта.
+Описание схем и инструкции по просмотру — в README этой папки.
 
 Python-сервис строит интерактивный граф `Bitbucket project/repository → TeamCity project/build configuration → build`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
@@ -67,7 +62,7 @@ flowchart LR
    `BB project → repository → TC project → build configuration → build`, поиск, impact и diff.
 
 Интерактивная подробная схема без внешних CDN находится в
-[`service-architecture.html`](service-architecture.html).
+[`docs/diagrams/service-architecture.html`](docs/diagrams/service-architecture.html).
 
 ## Быстрый запуск production: внешние BB, TC и PostgreSQL
 

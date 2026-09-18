@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
-@pytest.mark.parametrize("filename", ["README.md", "docs/production-runbook.md"])
+@pytest.mark.parametrize("filename", ["README.md", "docs/production-runbook.md", "docs/diagrams/README.md"])
 def test_documentation_local_links_resolve(filename):
     document = ROOT / filename
     contents = document.read_text(encoding="utf-8")
