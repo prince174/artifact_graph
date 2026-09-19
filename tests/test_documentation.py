@@ -10,6 +10,20 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
+def test_linux_debug_guide_uses_isolated_stack_and_safe_defaults():
+    readme = (ROOT / 'README.md').read_text(encoding='utf-8')
+    section = readme.split('## Локальная отладка через Docker на Linux', 1)[1].split('## Bitbucket Cloud', 1)[0]
+    for expected in ('APP_MODE=demo', 'GRAPH_BIND=127.0.0.1', 'GRAPH_PORT=18085',
+                     'config --quiet', '/health/ready', 'logs -f --tail 100 graph',
+                     'chmod 600 .env.debug', 'ssh -N -L', 'debugpy',
+                     'up -d --build postgres graph', 'up -d --build graph'):
+        assert expected in section
+    commands = [line for line in section.splitlines() if line.startswith('docker compose ')]
+    assert len(commands) == 6
+    assert all('-p artifact-graph-debug --env-file .env.debug -f compose.yaml' in line for line in commands)
+    assert not any('down --volumes' in line for line in commands)
+
+
 @pytest.mark.parametrize("filename", ["README.md", "docs/production-runbook.md", "docs/diagrams/README.md"])
 def test_documentation_local_links_resolve(filename):
     document = ROOT / filename

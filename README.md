@@ -157,6 +157,62 @@ docker compose up -d --build postgres graph
 последними тремя запусками каждой стадии.
 Кнопка обновления запускает скан вручную, плановый скан выполняется раз в 60 минут.
 
+## Локальная отладка через Docker на Linux
+
+Нужны Git, Docker Engine с запущенным daemon и Docker Compose v2 (`docker compose version`).
+Работайте из корня клонированного репозитория. Этот режим запускает только приложение
+и PostgreSQL с demo-данными: доступ к BB/TC не нужен, реальные сборки не запускаются.
+
+Создайте отдельный файл `.env.debug` (не заменяйте существующий `.env`), ограничьте
+его права через `chmod 600 .env.debug` и заполните:
+
+```dotenv
+APP_MODE=demo
+GRAPH_BIND=127.0.0.1
+GRAPH_PORT=18085
+DATABASE_URL=postgresql+psycopg://graph:graph@postgres:5432/graph
+WEB_AUTH_ENABLED=true
+WEB_USERNAME=root
+WEB_PASSWORD=replace-with-your-random-password
+WEB_COOKIE_SECURE=false
+REGISTRY_ENABLED=false
+WEBHOOK_ENABLED=false
+```
+
+Замените пароль своим случайным значением (например, результатом `openssl rand -hex 24`).
+Не коммитьте `.env.debug`. Переменные текущего shell имеют приоритет над env-файлом:
+не используйте shell с экспортированными production-настройками для этого запуска.
+
+```bash
+# Проверка настроек без вывода секретов
+docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml config --quiet
+# Сборка и запуск в отдельном Compose-проекте и с отдельным томом БД
+docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml up -d --build postgres graph
+# Состояние и готовность
+docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml ps
+curl --fail --show-error http://127.0.0.1:18085/health/ready
+# Логи приложения (Ctrl+C завершает просмотр, но не контейнеры)
+docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml logs -f --tail 100 graph
+```
+
+Откройте `http://localhost:18085`, войдите как `root` с паролем из `.env.debug`.
+Дождитесь готовности: при старте выполняются миграции и первый сбор demo-графа.
+Если порт занят, измените `GRAPH_PORT` и используйте выбранный порт в URL и проверках.
+Для удалённой Linux-машины оставьте привязку к loopback и откройте SSH-туннель
+на своём компьютере: `ssh -N -L 18085:127.0.0.1:18085 user@linux-host`.
+
+```bash
+# После изменения исходников пересоберите приложение
+docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml up -d --build graph
+# Остановить стенд, сохранив БД
+docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml down
+```
+
+Не добавляйте `--volumes` к `down`, если данные нужно сохранить.
+Это отладка по логам: текущий Compose не включает hot reload и `debugpy`/IDE breakpoints.
+Режим с реальными источниками (`APP_MODE=live`) требует отдельных RO-токенов и настроек
+BB/TC из соответствующих разделов ниже; demo не проверяет доступность этих систем.
+
 ## Bitbucket Cloud
 
 Создайте workspace в Bitbucket Cloud и отдельную учётную запись системы. Для неё создайте API token
