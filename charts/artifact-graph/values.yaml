@@ -10,6 +10,7 @@ existingSecret: ""
 migrationSecret: "" # defaults to existingSecret; can contain only DATABASE_URL
 caConfigMap: "" # optional existing ConfigMap, files mounted at /app/certs
 config:
+  LOG_LEVEL: DEBUG
   APP_MODE: live
   DEPLOYMENT_MODE: production
   DATABASE_MODE: external

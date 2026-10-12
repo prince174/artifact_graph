@@ -1,9 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Literal
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     app_mode: str = "demo"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "DEBUG"
     deployment_mode: str = "lab"
     tls_ca_file: str = ""
     database_url: str = "sqlite:///./graph.db"

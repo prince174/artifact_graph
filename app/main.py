@@ -29,6 +29,11 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app):
+    from .logging_setup import configure_logging
+    from .dry_run import fingerprint
+    import logging
+    configure_logging()
+    logging.getLogger(__name__).info("startup fingerprint=%s log_level=%s projects=%r", fingerprint(), settings.log_level, settings.selected_bitbucket_projects or "ALL")
     validate_runtime_settings()
     await refresh()
     scheduler.add_job(refresh, "interval", minutes=settings.refresh_minutes, id="refresh", max_instances=1, coalesce=True)

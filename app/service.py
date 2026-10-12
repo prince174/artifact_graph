@@ -1,6 +1,8 @@
 import json
 import re
 import asyncio
+import logging
+import time
 import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -23,6 +25,7 @@ from .alerts import enqueue_scan_alerts
 
 
 refresh_lock = asyncio.Lock()
+log = logging.getLogger(__name__)
 build_input_cache = BoundedCache(settings.incremental_cache_size)
 source_cache = BoundedCache(settings.incremental_cache_size)
 
@@ -78,11 +81,14 @@ def _mark_stale(nodes: list[dict], reason: str, stale_since=None) -> list[dict]:
 
 async def refresh():
     async with refresh_lock:
+        started = time.monotonic()
+        log.info("scan_start mode=%s provider=%s projects=%r", settings.app_mode, settings.bitbucket_provider, settings.selected_bitbucket_projects or "ALL")
         with SessionLocal.begin() as db:
             scan = Scan()
             db.add(scan)
         previous_nodes, previous_edges = _load_graph()
         scan_details = {}
+        status = "failed"
         try:
             if settings.app_mode == "demo":
                 nodes, edges = dataset()
@@ -100,6 +106,7 @@ async def refresh():
                 message += f"; {error_count} incomplete entities"
                 scan_details = {"incompleteEntities": error_count}
         except Exception as exc:
+            log.error("scan_failure error=%s elapsed=%.3fs", type(exc).__name__, time.monotonic() - started)
             scan_details = upstream_failure(exc)
             if previous_nodes:
                 failure = upstream_message(scan_details)
@@ -111,6 +118,7 @@ async def refresh():
                 status, message = "failed", str(exc)
                 raise
         finally:
+            log.info("scan_finish status=%s elapsed=%.3fs", status, time.monotonic() - started)
             with SessionLocal.begin() as db:
                 row = db.get(Scan, scan.id)
                 row.status, row.message, row.details, row.finished_at = status, message, json.dumps(scan_details), datetime.now(timezone.utc)
@@ -130,6 +138,7 @@ def _save_snapshot(scan_id: int, nodes: list[dict], edges: list[dict]) -> None:
 
 
 async def collect_live():
+    log.info("collection_stage bitbucket_repositories")
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
     mapping_rules = load_mapping_rules(settings.mapping_rules_path)
     registry = RegistryCollector() if settings.registry_enabled else None
@@ -149,7 +158,9 @@ async def collect_live():
             for clone_url in repo.clone_urls:
                 if normalized := normalize_url(clone_url):
                     repo_by_url.setdefault(normalized, set()).add(rid)
+        log.info("collection_stage teamcity_configurations repositories=%s", len(repo_records))
         for summary in await tc.build_types():
+            log.info("teamcity_configuration_start project=%r configuration=%r", summary.get("projectId"), summary["id"])
             try:
                 detail = await tc.build_type(summary["id"])
             except httpx.HTTPError as exc:
@@ -203,6 +214,7 @@ async def collect_live():
             )
             cacheable = all(repo.revision for repo in linked_repositories)
             sources = source_cache.get(source_key) if cacheable else None
+            log.debug("source_cache configuration=%r memory_hit=%s", detail["id"], sources is not None)
             if sources is None:
                 persistent = _persistent("source")
                 stored = persistent.get(source_key) if cacheable else None
@@ -230,6 +242,7 @@ async def collect_live():
             artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
             sbom_rule = artifact_rules if publishes_sbom(artifact_rules) else ""
             for build in await tc.builds(detail["id"]):
+                log.debug("teamcity_build_start project=%r configuration=%r build=%r", detail["projectId"], detail["id"], build["id"])
                 finished = build.get("state", "finished") == "finished"
                 persistent_build = _persistent("build")
                 build_key = ("build-v2", settings.teamcity_url.rstrip("/"), settings.teamcity_public_url.rstrip("/"), str(build["id"]), build.get("finishDate"))
@@ -278,6 +291,7 @@ async def collect_live():
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
+            log.info("teamcity_configuration_complete project=%r configuration=%r", detail["projectId"], detail["id"])
         nodes, edges = deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
         annotate_visual_state(nodes, edges)
         return nodes, edges

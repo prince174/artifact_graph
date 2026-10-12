@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -43,9 +43,11 @@ class ApiClient:
         """Bound the wire body; reject compression to avoid decompression bombs."""
         if max_bytes < 1:
             raise ValueError("max_bytes must be positive")
+        started = time.monotonic()
         async with self.client.stream("GET", self.url(path), params=params or None,
                                       headers={"Accept-Encoding": "identity"}) as response:
             if response.status_code == 404:
+                log.debug("api_source_missing provider=%s path=%r", self.provider, urlsplit(path).path)
                 return None, False
             response.raise_for_status()
             if response.headers.get("Content-Encoding", "identity").lower() != "identity":
@@ -56,6 +58,7 @@ class ApiClient:
                 content.extend(chunk[:remaining])
                 if len(content) > max_bytes:
                     break
+            log.debug("api_source_complete provider=%s bytes=%s elapsed=%.3fs", self.provider, len(content), time.monotonic() - started)
             return bytes(content[:max_bytes]).decode("utf-8", errors="replace"), len(content) > max_bytes
 
     def __init__(self, base_url: str, token: str, *, basic_user: str = "", provider: str = "api"):
@@ -71,11 +74,17 @@ class ApiClient:
         )
 
     def url(self, path: str) -> str:
-        return resolve_api_url(str(self.client.base_url), path)
+        try:
+            result = resolve_api_url(str(self.client.base_url), path)
+        except ValueError:
+            log.debug("api_url_rejected provider=%s path=%r", self.provider, urlsplit(path).path)
+            raise
+        return result
 
     async def validate_request(self, request: httpx.Request):
         # Also applies to redirects: credentials must never leave the configured origin.
         self.url(str(request.url))
+        log.debug("api_request provider=%s path=%r", self.provider, request.url.path)
 
     async def get_json(self, path: str, **params):
         attempts = max(1, settings.api_retry_attempts)
@@ -86,10 +95,12 @@ class ApiClient:
                 response = await self.client.get(self.url(path), params=params or None)
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     response.raise_for_status()
+                    log.debug("api_response provider=%s status=%s elapsed=%.3fs", self.provider, response.status_code, time.monotonic() - started)
                     provider_metrics.record(self.provider, "success", time.monotonic() - started)
                     return response.json()
                 response.raise_for_status()
             except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+                log.debug("api_failure provider=%s error=%s attempt=%s", self.provider, type(exc).__name__, attempt + 1)
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code not in {429, 500, 502, 503, 504}:
                     provider_metrics.record(self.provider, "error", time.monotonic() - started)
                     raise
@@ -113,21 +124,28 @@ class BitbucketDataCenterCollector(ApiClient):
         self.file_indexes = {}
 
     async def repositories(self):
+        log.debug("bitbucket_scope projects=%r", self.project_keys or "ALL")
         paths = [f"/rest/api/1.0/projects/{quote(key, safe='')}/repos" for key in self.project_keys]
         for path in paths or ["/rest/api/1.0/repos"]:
+            log.info("bitbucket_project_start path=%r", path)
             async for repo in self._repositories_at(path):
                 yield repo
+            log.info("bitbucket_project_complete path=%r", path)
 
     async def _repositories_at(self, path):
         start = 0
         while True:
+            log.debug("bitbucket_repository_page path=%r start=%s", path, start)
             page = await self.get_json(path, limit=100, start=start)
             for repo in page.get("values", []):
                 project = repo["project"]
                 if self.project_keys and project["key"] not in self.project_keys:
+                    log.debug("bitbucket_project_excluded project=%r", project["key"])
                     continue
                 links = repo.get("links", {})
+                log.info("bitbucket_repository_start project=%r repo=%r", project["key"], repo["slug"])
                 branch, revision = await self.default_revision(project["key"], repo["slug"])
+                log.info("bitbucket_repository_ready project=%r repo=%r branch=%r commit=%s", project["key"], repo["slug"], branch, revision)
                 yield Repository(
                     provider="bitbucket_dc", namespace=project["key"],
                     project_key=project["key"], project_name=project["name"],
@@ -180,6 +198,7 @@ class BitbucketDataCenterCollector(ApiClient):
         base = f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}"
         paths, start = set(), 0
         while True:
+            log.debug("bitbucket_file_index_page project=%r repo=%r commit=%s start=%s", repository.project_key, repository.slug, at, start)
             page = await self.get_json(f"{base}/files", at=at, limit=1000, start=start)
             if not isinstance(page, dict) or not isinstance(page.get("values"), list) or type(page.get("isLastPage")) is not bool:
                 raise httpx.DecodingError("Invalid Bitbucket file index page")
@@ -205,7 +224,9 @@ class BitbucketDataCenterCollector(ApiClient):
             return None
         at = revision or repository.revision
         if path not in await self.file_index(repository, at):
+            log.debug("source_not_indexed project=%r repo=%r commit=%s path=%r", repository.project_key, repository.slug, at, path)
             return None
+        log.debug("source_read project=%r repo=%r commit=%s path=%r", repository.project_key, repository.slug, at, path)
         cache_key = (repository.project_key, repository.slug, path, at)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]

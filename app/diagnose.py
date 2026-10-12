@@ -111,11 +111,21 @@ def run(timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="Read Bitbucket indexed source files without database/graph writes")
+    parser.add_argument("--expect-projects", default="", help="Fail before requests if effective project selection differs")
+    parser.add_argument("--max-files", type=int, default=1000, help="Dry-run candidate file limit; reaching it is not a successful full check")
     parser.add_argument("--timeout", type=float, default=15,
                         help="HTTP operation / DB connect and statement timeout in seconds (default: 15)")
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be positive and finite")
+    if args.max_files < 1:
+        parser.error("--max-files must be positive")
+    if args.dry_run:
+        from .dry_run import run as dry_run
+        return dry_run(args.timeout, args.expect_projects, args.max_files)
+    if args.expect_projects:
+        parser.error("--expect-projects requires --dry-run")
     return run(args.timeout)
 
 

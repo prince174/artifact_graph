@@ -217,6 +217,35 @@ BB/TC из соответствующих разделов ниже; demo не �
 
 ## Диагностика зависшего старта (Docker Compose)
 
+Для предварительного обхода Bitbucket без миграций, запуска сервиса и записи графа:
+
+```bash
+docker compose -p artefact-graph-prod --env-file .env.prod -f compose.prod.yaml build graph
+docker compose -p artefact-graph-prod --env-file .env.prod -f compose.prod.yaml run --rm --no-deps graph python -m app.diagnose --dry-run --expect-projects INFSEC --timeout 600 --max-files 1000
+```
+
+Для внешней БД замените файл на `compose.prod.external-db.yaml`. Этот режим не
+подключается к БД: он обходит выбранные проекты, индекс файлов и читает скрипты/
+build-файлы через API. Не проверяет рабочую директорию TeamCity и не доказывает
+фактическое выполнение найденных скриптов. `--expect-projects` сверяет ожидаемый
+список с настройкой внутри контейнера до сетевых запросов. Используйте заглавное
+`BITBUCKET_PROJECT_KEYS=INFSEC` в env-файле Compose. В логе есть fingerprint кода:
+разные значения указывают на разные версии диагностируемых модулей.
+В dry-run `--timeout` ограничивает весь обход, а `--max-files` — число кандидатов
+исходников. Ошибка API, неразрешённые ссылки, несовпадение проектов, превышение
+лимита или таймаут дают код `1`, а не успешный результат частичной проверки.
+
+`LOG_LEVEL=DEBUG` включён по умолчанию (Compose и Helm тоже передают его).
+Dry-run всегда использует DEBUG. При обычном запуске логи показывают
+`scan_start`, `bitbucket_project_start`, `bitbucket_repository_start/ready`,
+страницы репозиториев, `Bitbucket file index`, `source_read`,
+`source_analysis_start/complete`, `teamcity_configuration_start` и `scan_finish`.
+В событиях указаны ключи проектов, репозитории, commit и пути; у ответов API —
+статус и длительность. HTTP-заголовки, query-параметры и тела ответов не выводятся.
+Секреты из настроек редактируются. Для снижения детализации задайте `LOG_LEVEL=INFO`
+и пересоздайте контейнер. Эти логи позволяют определить текущий этап, но не дают
+процент или оценку оставшегося времени всего сбора.
+
 `Waiting for application startup` может означать первый обход BB/TC: HTTP-сервер
 начинает принимать запросы после него. Для проверки зависимостей независимо от
 текущего сбора запустите Python-диагностику. Команды для macOS/Linux (Bash/zsh):

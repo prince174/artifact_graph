@@ -65,6 +65,7 @@ def build_source_paths(step_type: str, properties: dict[str, str]) -> list[str]:
 async def expand_scripts(provider: RepositoryProvider, repositories: list[Repository], inline_scripts: list[str], source_paths=()) -> list[ScriptSource]:
     sources = [ScriptSource("teamcity:inline", text) for text in inline_scripts if text]
     for repository in repositories:
+        log.info("source_analysis_start project=%r repo=%r commit=%s", repository.project_key, repository.slug, repository.revision)
         seen = set()
         pending = list(source_paths) + referenced_scripts("\n".join(inline_scripts))
         while pending:
@@ -82,4 +83,5 @@ async def expand_scripts(provider: RepositoryProvider, repositories: list[Reposi
             if text is not None:
                 sources.append(ScriptSource(f"{repository.namespace}/{repository.slug}/{path}", text))
                 pending.extend(referenced_scripts(text))
+        log.info("source_analysis_complete project=%r repo=%r paths_checked=%s", repository.project_key, repository.slug, len(seen))
     return sources
