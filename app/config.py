@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     api_retry_attempts: int = 4
     api_retry_backoff_seconds: float = 0.5
     bitbucket_provider: str = "cloud"
+    bitbucket_project_keys: str = ""
     bitbucket_url: str = "http://localhost:7990"
     bitbucket_workspace: str = ""
     bitbucket_email: str = ""
@@ -49,6 +50,10 @@ class Settings(BaseSettings):
     webhook_allow_http: bool = False
     webhook_timeout_seconds: float = 5.0
     webhook_max_attempts: int = 6
+
+    @property
+    def selected_bitbucket_projects(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(key.strip() for key in self.bitbucket_project_keys.split(",") if key.strip()))
 
 
 settings = Settings()

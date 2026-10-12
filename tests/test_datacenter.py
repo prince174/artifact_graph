@@ -7,6 +7,63 @@ from app.collectors import BitbucketDataCenterCollector, Repository
 
 
 @pytest.mark.asyncio
+async def test_selected_projects_only_paginate_their_own_repositories():
+    seen = []
+    def handler(request):
+        path = request.url.path
+        seen.append(path)
+        assert path.startswith("/bitbucket/rest/api/1.0/projects/")
+        key = path.split("/")[6]
+        assert key in {"ONE", "TWO"}
+        if path.endswith("/repos"):
+            start = int(request.url.params["start"])
+            return httpx.Response(200, json={"values": [
+                {"project": {"key": key, "name": key}, "slug": f"repo{start}", "name": "Repo"},
+                {"project": {"key": "EXCLUDED", "name": "No"}, "slug": "no", "name": "No"},
+            ], "isLastPage": start == 7, "nextPageStart": 7})
+        if path.endswith("/default-branch"):
+            return httpx.Response(200, json={"id": "refs/heads/main"})
+        return httpx.Response(200, json={"values": [{"id": "refs/heads/main", "latestCommit": "a" * 40}]})
+    collector = BitbucketDataCenterCollector("https://bb/bitbucket", "reader", ("ONE", "TWO", "ONE"))
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(base_url="https://bb/bitbucket", transport=httpx.MockTransport(handler))
+    try:
+        repos = [repo async for repo in collector.repositories()]
+        assert [(repo.project_key, repo.slug) for repo in repos] == [
+            ("ONE", "repo0"), ("ONE", "repo7"), ("TWO", "repo0"), ("TWO", "repo7")]
+        assert sum(path.endswith("/repos") for path in seen) == 4
+    finally:
+        await collector.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [403, 404])
+async def test_selected_project_failure_never_falls_back_to_all(status):
+    collector = BitbucketDataCenterCollector("https://bb", "reader", ("MISSING",))
+    await collector.client.aclose()
+    paths = []
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(status)
+    collector.client = httpx.AsyncClient(base_url="https://bb", transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            _ = [repo async for repo in collector.repositories()]
+        assert paths == ["/rest/api/1.0/projects/MISSING/repos"]
+    finally:
+        await collector.close()
+
+
+def test_project_settings_reach_provider(monkeypatch):
+    from app.config import settings
+    from app.collectors import repository_provider
+    monkeypatch.setattr(settings, "bitbucket_provider", "datacenter")
+    monkeypatch.setattr(settings, "bitbucket_project_keys", " ONE, TWO, ONE , ,")
+    monkeypatch.setattr("app.collectors.BitbucketDataCenterCollector", lambda url, token, keys: keys)
+    assert repository_provider() == ("ONE", "TWO")
+
+
+@pytest.mark.asyncio
 async def test_dc_pagination_context_exact_branch_and_immutable_file():
     seen = []
     def handler(request):

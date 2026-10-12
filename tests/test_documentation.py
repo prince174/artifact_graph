@@ -12,7 +12,7 @@ ROOT = Path(__file__).parents[1]
 
 def test_linux_debug_guide_uses_isolated_stack_and_safe_defaults():
     readme = (ROOT / 'README.md').read_text(encoding='utf-8')
-    section = readme.split('## Локальная отладка через Docker на Linux', 1)[1].split('## Bitbucket Cloud', 1)[0]
+    section = readme.split('## Локальная отладка через Docker на Linux', 1)[1].split('\n## ', 1)[0]
     for expected in ('APP_MODE=demo', 'GRAPH_BIND=127.0.0.1', 'GRAPH_PORT=18085',
                      'config --quiet', '/health/ready', 'logs -f --tail 100 graph',
                      'chmod 600 .env.debug', 'ssh -N -L', 'debugpy',

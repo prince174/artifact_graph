@@ -102,16 +102,25 @@ class ApiClient:
 
 
 class BitbucketDataCenterCollector(ApiClient):
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, project_keys: tuple[str, ...] = ()):
         super().__init__(base_url, token, provider="bitbucket")
         self.file_cache = {}
+        self.project_keys = tuple(dict.fromkeys(project_keys))
 
     async def repositories(self):
+        paths = [f"/rest/api/1.0/projects/{quote(key, safe='')}/repos" for key in self.project_keys]
+        for path in paths or ["/rest/api/1.0/repos"]:
+            async for repo in self._repositories_at(path):
+                yield repo
+
+    async def _repositories_at(self, path):
         start = 0
         while True:
-            page = await self.get_json("/rest/api/1.0/repos", limit=100, start=start)
+            page = await self.get_json(path, limit=100, start=start)
             for repo in page.get("values", []):
                 project = repo["project"]
+                if self.project_keys and project["key"] not in self.project_keys:
+                    continue
                 links = repo.get("links", {})
                 branch, revision = await self.default_revision(project["key"], repo["slug"])
                 yield Repository(
@@ -299,7 +308,7 @@ def repository_provider() -> RepositoryProvider:
             raise ValueError("BITBUCKET_EMAIL is required for Cloud API token authentication")
         return BitbucketCloudCollector(settings.bitbucket_workspace, settings.bitbucket_token, email)
     if settings.bitbucket_provider == "datacenter":
-        return BitbucketDataCenterCollector(settings.bitbucket_url, settings.bitbucket_token)
+        return BitbucketDataCenterCollector(settings.bitbucket_url, settings.bitbucket_token, settings.selected_bitbucket_projects)
     raise ValueError(f"Unsupported BITBUCKET_PROVIDER: {settings.bitbucket_provider}")
 
 

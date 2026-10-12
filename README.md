@@ -18,6 +18,8 @@ Bitbucket подключается через общий контракт `Repos
 
 ## Схема работы сервиса
 
+Быстрая установка Helm chart с Bitbucket Data Center: [charts/artifact-graph/README.md](charts/artifact-graph/README.md).
+
 Развёртывание в Kubernetes через Helm (одна реплика, без HPA), миграции отдельным
 Job, обновление и локальный kind-тест: [docs/kubernetes.md](docs/kubernetes.md).
 
@@ -212,6 +214,72 @@ docker compose -p artifact-graph-debug --env-file .env.debug -f compose.yaml dow
 Это отладка по логам: текущий Compose не включает hot reload и `debugpy`/IDE breakpoints.
 Режим с реальными источниками (`APP_MODE=live`) требует отдельных RO-токенов и настроек
 BB/TC из соответствующих разделов ниже; demo не проверяет доступность этих систем.
+
+## Диагностика зависшего старта (Docker Compose)
+
+`Waiting for application startup` может означать первый обход BB/TC: HTTP-сервер
+начинает принимать запросы после него. Для проверки зависимостей независимо от
+текущего сбора запустите Python-диагностику. Команды для macOS/Linux (Bash/zsh):
+
+```bash
+# После обновления кода пересоберите образ; это перезапустит приложение и первый сбор.
+docker compose -p artefact-graph-prod --env-file .env.prod -f compose.prod.yaml up -d --build graph
+docker compose -p artefact-graph-prod --env-file .env.prod -f compose.prod.yaml exec -T graph python -m app.diagnose --timeout 15
+```
+
+Для внешней PostgreSQL замените `compose.prod.yaml` на
+`compose.prod.external-db.yaml`. Имя проекта и env-файл должны совпадать с запуском.
+Если контейнер падает и `exec` недоступен, после сборки образа используйте отдельный
+контейнер с той же конфигурацией (без запуска Uvicorn и миграций):
+
+```bash
+docker compose -p artefact-graph-prod --env-file .env.prod -f compose.prod.yaml run --rm --no-deps graph python -m app.diagnose --timeout 15
+```
+
+Диагностика выполняет валидацию настроек, PostgreSQL `SELECT 1`, чтение одной страницы
+репозиториев Bitbucket Data Center и TeamCity `/app/rest/server`. При заданном
+`BITBUCKET_PROJECT_KEYS` проверяет каждый выбранный проект. Показывает начало, время
+и результат этапа; не выводит токены, URL БД, тела ответов и тексты исключений.
+Код выхода `0` означает успех всех проб, `1` — ошибку, `2` — неверный аргумент CLI.
+`--timeout` ограничивает отдельные HTTP-операции, подключение и SQL-запрос, а не
+суммарное время всех проверок. Проверки чтения не запускают сборки и не меняют граф.
+
+- `401/403`: проверить токен и права; `3xx`: базовый URL, context path и SSO.
+- `ConnectError/ConnectTimeout`: проверить DNS, VPN, firewall и доверие сертификатам.
+- `ReadTimeout`: сервер не ответил вовремя; `FileNotFoundError`: проверить CA внутри контейнера.
+- `HTTP 200 but not JSON`: возможно, вместо API отвечает страница входа.
+
+Это проверка доступности отдельных API, а не процент текущего сбора и не проверка
+всех прав на файлы/билды. Для нагрузки используйте `docker stats`, для логов —
+`docker compose ... logs -f --timestamps graph`.
+
+## Сбор только выбранных проектов Bitbucket Data Center
+
+В `.env.prod` (либо env-файле локального запуска) укажите **ключи проектов**, не имена:
+
+```dotenv
+BITBUCKET_PROVIDER=datacenter
+BITBUCKET_PROJECT_KEYS=CORE,PAY,INFRA
+```
+
+Пробелы вокруг ключей и повторы удаляются; регистр сохраняется — используйте точные
+ключи Bitbucket. Пустое значение сохраняет обход всех доступных репозиториев.
+С заданным списком сборщик запрашивает `/projects/{key}/repos` только для выбранных
+проектов, включая все страницы. Неизвестный/недоступный проект приводит к ошибке
+сбора, а не к незаметному переходу на обход всех проектов. Для Cloud настройка не применяется.
+
+После изменения пересоздайте `graph` командой `up -d graph` с теми же Compose-файлом,
+проектом и env-файлом. Для Helm добавьте в приватный values-файл:
+
+```yaml
+config:
+  BITBUCKET_PROJECT_KEYS: "CORE,PAY,INFRA"
+```
+
+Обновляйте Helm по процедуре в `docs/kubernetes.md`. Ограничение относится к Bitbucket:
+обход TeamCity остаётся полным для сопоставления VCS roots. После успешного сбора
+текущий граф перестраивается; история и snapshots сохраняются. При ошибке сбора
+может остаться прежний граф с признаком `stale`, включая ранее выбранные проекты.
 
 ## Bitbucket Cloud
 

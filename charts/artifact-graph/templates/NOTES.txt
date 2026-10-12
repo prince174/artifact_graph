@@ -1,0 +1,17 @@
+Artifact Graph: release {{ .Release.Name }}, namespace {{ .Release.Namespace }}
+
+Check the application:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} logs deployment/{{ include "ag.name" . }} --tail=100
+{{ if .Values.ingress.enabled }}
+Open: https://{{ .Values.ingress.host }}
+{{ else }}
+For a readiness check:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "ag.name" . }} 18080:8080
+  curl --fail http://localhost:18080/health/ready
+{{ if eq (toString .Values.config.WEB_COOKIE_SECURE) "true" }}
+Secure cookies are enabled. Configure HTTPS access for browser login.
+{{ end }}
+{{ end }}
+The first scan must finish before the application becomes ready.
+Before upgrades, stop the collector as described in docs/kubernetes.md.

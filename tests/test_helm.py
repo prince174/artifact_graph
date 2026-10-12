@@ -68,3 +68,9 @@ def test_production_renders_separate_migration_credentials_and_ca():
     assert job["containers"][0]["env"][0]["valueFrom"]["secretKeyRef"]["name"] == "migration-role"
     assert next(v for v in job["volumes"] if v["name"] == "ca")["configMap"]["name"] == "corporate-ca"
     assert not any(x["kind"] == "Secret" for x in objects)
+
+
+def test_project_selection_reaches_configmap():
+    objects = render("--set-string", r"config.BITBUCKET_PROJECT_KEYS=ONE\,TWO")
+    config = next(x for x in objects if x["kind"] == "ConfigMap" and "BITBUCKET_PROVIDER" in x.get("data", {}))
+    assert config["data"]["BITBUCKET_PROJECT_KEYS"] == "ONE,TWO"
