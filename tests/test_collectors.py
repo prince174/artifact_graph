@@ -49,14 +49,16 @@ async def test_repository_files_are_cached_during_scan(collector_factory):
     calls = 0
     collector = collector_factory()
 
-    def handler(_):
+    def handler(request):
         nonlocal calls
+        if request.url.path.endswith("/files"):
+            return httpx.Response(200, json={"values": ["pom.xml"], "isLastPage": True})
         calls += 1
         return httpx.Response(200, text="docker push registry/api:1")
 
     await collector.client.aclose()
     collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://provider")
-    repo = Repository("provider", "acme", "DEMO", "Demo", "api", "API", "url", (), "main")
+    repo = Repository("provider", "acme", "DEMO", "Demo", "api", "API", "url", (), "main", revision="a" * 40)
     try:
         assert await collector.file_text(repo, "pom.xml") == "docker push registry/api:1"
         assert await collector.file_text(repo, "pom.xml") == "docker push registry/api:1"

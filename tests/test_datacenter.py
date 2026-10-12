@@ -84,6 +84,8 @@ async def test_dc_pagination_context_exact_branch_and_immutable_file():
             return httpx.Response(200, json={"values": [{"id": "refs/heads/release/stable-old" if start == 0 else "refs/heads/release/stable", "latestCommit": "wrong" if start == 0 else "a" * 40}],
                                             "isLastPage": start == 3, "nextPageStart": 3})
         assert request.url.params["at"] == "a" * 40
+        if path.endswith("/files"):
+            return httpx.Response(200, json={"values": ["ci/build.sh"], "isLastPage": True})
         return httpx.Response(200, text="docker push registry/product:1")
     collector = BitbucketDataCenterCollector("https://bb/bitbucket", "reader")
     await collector.client.aclose()
@@ -135,6 +137,8 @@ async def test_dc_branch_failures_are_not_silently_empty(status):
 async def test_dc_file_cache_changes_when_commit_changes():
     revisions = []
     def handler(request):
+        if request.url.path.endswith("/files"):
+            return httpx.Response(200, json={"values": ["pom.xml"], "isLastPage": True})
         revisions.append(request.url.params["at"])
         return httpx.Response(200, text=request.url.params["at"])
     collector = BitbucketDataCenterCollector("https://bb", "reader")
@@ -145,5 +149,109 @@ async def test_dc_file_cache_changes_when_commit_changes():
         assert await collector.file_text(repo, "pom.xml") == "a" * 40
         assert await collector.file_text(replace(repo, revision="b" * 40), "pom.xml") == "b" * 40
         assert revisions == ["a" * 40, "b" * 40]
+    finally:
+        await collector.close()
+
+
+@pytest.mark.asyncio
+async def test_file_index_pagination_membership_and_commit_cache():
+    requests = []
+    def handler(request):
+        requests.append(request)
+        assert request.url.path.startswith("/bitbucket/rest/api/1.0/projects/PRJ/repos/repo/")
+        if request.url.path.endswith("/files"):
+            start = int(request.url.params["start"])
+            return httpx.Response(200, json={"values": ["lib/log.sh"] if start == 0 else ["ci/build.sh", "other/log.sh"],
+                                            "isLastPage": start == 17, "nextPageStart": 17})
+        assert request.url.path.endswith("/raw/lib/log.sh")
+        return httpx.Response(200, text="echo hello")
+    collector = BitbucketDataCenterCollector("https://bb/bitbucket", "reader")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(base_url="https://bb/bitbucket", transport=httpx.MockTransport(handler))
+    repo = Repository("bitbucket_dc", "PRJ", "PRJ", "Project", "repo", "Repo", "", (), revision="a" * 40)
+    try:
+        assert await collector.file_text(repo, "../lib/log.sh") is None
+        assert await collector.file_text(repo, "log.sh") is None
+        assert await collector.file_text(repo, "missing.sh") is None
+        assert await collector.file_text(repo, "lib/log.sh") == "echo hello"
+        assert await collector.file_text(repo, "lib/log.sh") == "echo hello"
+        assert len(requests) == 3
+        assert all(r.url.params["at"] == "a" * 40 for r in requests)
+        assert await collector.file_text(repo, "lib/log.sh", revision="b" * 40) == "echo hello"
+        assert len(requests) == 6
+        assert all(r.url.params["at"] == "b" * 40 for r in requests[3:])
+    finally:
+        await collector.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page", [
+    {"values": ["../lib/log.sh"], "isLastPage": True},
+    {"values": ["/lib/log.sh"], "isLastPage": True},
+    {"values": ["lib/./log.sh"], "isLastPage": True},
+    {"values": ["lib/\nlog.sh"], "isLastPage": True},
+    {"values": [], "isLastPage": False, "nextPageStart": 0},
+    {"values": "not a list", "isLastPage": True},
+    {"values": []},
+])
+async def test_invalid_file_index_is_not_cached_or_used_for_raw_requests(page):
+    collector = BitbucketDataCenterCollector("https://bb", "reader")
+    await collector.client.aclose()
+    def handler(request):
+        assert request.url.path.endswith("/files")
+        return httpx.Response(200, json=page)
+    collector.client = httpx.AsyncClient(base_url="https://bb", transport=httpx.MockTransport(handler))
+    repo = Repository("bitbucket_dc", "PRJ", "PRJ", "Project", "repo", "Repo", "", (), revision="a" * 40)
+    try:
+        with pytest.raises(httpx.DecodingError):
+            await collector.file_text(repo, "pom.xml")
+        assert not collector.file_indexes
+    finally:
+        await collector.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403, 404])
+async def test_index_access_failure_has_no_unchecked_raw_fallback(status):
+    collector = BitbucketDataCenterCollector("https://bb", "reader")
+    await collector.client.aclose()
+    def handler(request):
+        assert request.url.path.endswith("/files")
+        return httpx.Response(status)
+    collector.client = httpx.AsyncClient(base_url="https://bb", transport=httpx.MockTransport(handler))
+    repo = Repository("bitbucket_dc", "PRJ", "PRJ", "Project", "repo", "Repo", "", (), revision="a" * 40)
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            await collector.file_text(repo, "pom.xml")
+        assert not collector.file_indexes
+    finally:
+        await collector.close()
+
+
+@pytest.mark.asyncio
+async def test_recursive_source_expansion_uses_only_indexed_root_paths():
+    from app.source_analysis import expand_scripts
+    seen = []
+    files = {"ci/build.sh": "bash ../lib/log.sh\nbash ci/../lib/publish.sh\nbash missing.sh",
+             "lib/publish.sh": "docker push registry/app:1"}
+    def handler(request):
+        seen.append(request.url.path)
+        assert request.url.params["at"] == "a" * 40
+        if request.url.path.endswith("/files"):
+            return httpx.Response(200, json={"values": list(files), "isLastPage": True})
+        path = request.url.path.split("/raw/", 1)[1]
+        assert path in files
+        return httpx.Response(200, text=files[path])
+    collector = BitbucketDataCenterCollector("https://bb", "reader")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(base_url="https://bb", transport=httpx.MockTransport(handler))
+    repo = Repository("bitbucket_dc", "PRJ", "PRJ", "Project", "repo", "Repo", "", (), revision="a" * 40)
+    try:
+        result = await expand_scripts(collector, [repo], ["bash ci/build.sh"])
+        assert [s.path for s in result] == ["teamcity:inline", "PRJ/repo/ci/build.sh", "PRJ/repo/lib/publish.sh"]
+        assert len(seen) == 3
+        with pytest.raises(ValueError, match="immutable commit"):
+            await collector.file_text(replace(repo, revision="main"), "ci/build.sh")
+        assert len(seen) == 3
     finally:
         await collector.close()

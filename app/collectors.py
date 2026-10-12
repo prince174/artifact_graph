@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Protocol
@@ -10,6 +12,8 @@ from .config import settings
 from .provider_metrics import provider_metrics
 from .transport_security import tls_verification
 from .upstream_urls import public_api_url, resolve_api_url
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,7 @@ class BitbucketDataCenterCollector(ApiClient):
         super().__init__(base_url, token, provider="bitbucket")
         self.file_cache = {}
         self.project_keys = tuple(dict.fromkeys(project_keys))
+        self.file_indexes = {}
 
     async def repositories(self):
         paths = [f"/rest/api/1.0/projects/{quote(key, safe='')}/repos" for key in self.project_keys]
@@ -163,10 +168,44 @@ class BitbucketDataCenterCollector(ApiClient):
                 raise ValueError("Bitbucket branch pagination did not advance")
             start = next_start
 
+    async def file_index(self, repository, revision=None) -> frozenset[str]:
+        at = revision or repository.revision
+        if not repository.source_available and not revision:
+            return frozenset()
+        if not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", at or ""):
+            raise ValueError("Bitbucket file index requires an immutable commit ID")
+        key = (repository.project_key, repository.slug, at)
+        if key in self.file_indexes:
+            return self.file_indexes[key]
+        base = f"/rest/api/1.0/projects/{quote(repository.project_key, safe='')}/repos/{quote(repository.slug, safe='')}"
+        paths, start = set(), 0
+        while True:
+            page = await self.get_json(f"{base}/files", at=at, limit=1000, start=start)
+            if not isinstance(page, dict) or not isinstance(page.get("values"), list) or type(page.get("isLastPage")) is not bool:
+                raise httpx.DecodingError("Invalid Bitbucket file index page")
+            for path in page["values"]:
+                if (not isinstance(path, str) or not path or "\\" in path
+                        or any(part in {"", ".", ".."} for part in path.split("/"))
+                        or any(ord(char) < 32 or ord(char) == 127 for char in path)):
+                    raise httpx.DecodingError("Invalid path in Bitbucket file index")
+                paths.add(path)
+            log.info("Bitbucket file index %s/%s: %d paths at %s", repository.project_key, repository.slug, len(paths), at)
+            if page["isLastPage"]:
+                break
+            next_start = page.get("nextPageStart")
+            if type(next_start) is not int or next_start <= start:
+                raise httpx.DecodingError("Bitbucket file index pagination did not advance")
+            start = next_start
+        result = frozenset(paths)
+        self.file_indexes[key] = result
+        return result
+
     async def file_text(self, repository, path, revision=None):
         if not repository.source_available and not revision:
             return None
-        at = revision or repository.revision or f"refs/heads/{repository.default_branch}"
+        at = revision or repository.revision
+        if path not in await self.file_index(repository, at):
+            return None
         cache_key = (repository.project_key, repository.slug, path, at)
         if cache_key in self.file_cache:
             return self.file_cache[cache_key]

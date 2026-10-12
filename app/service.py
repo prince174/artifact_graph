@@ -197,7 +197,7 @@ async def collect_live():
                 scripts.extend(resolve_teamcity_parameters(v, parameters) for k, v in props.items() if "script" in k.lower())
                 build_files.extend(build_source_paths(step.get("type", ""), props))
             source_key = (
-                "source-v2", settings.bitbucket_url.rstrip("/") if settings.bitbucket_provider == "datacenter" else "https://api.bitbucket.org/2.0",
+                "source-v3-indexed", settings.bitbucket_url.rstrip("/") if settings.bitbucket_provider == "datacenter" else "https://api.bitbucket.org/2.0",
                 tuple(sorted((repo.provider, repo.namespace, repo.project_key, repo.slug, repo.default_branch, repo.revision) for repo in linked_repositories)),
                 tuple(sorted(scripts)), tuple(sorted(build_files)),
             )
