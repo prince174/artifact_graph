@@ -253,6 +253,13 @@ docker compose -p artefact-graph-prod --env-file .env.prod -f compose.prod.yaml 
 всех прав на файлы/билды. Для нагрузки используйте `docker stats`, для логов —
 `docker compose ... logs -f --timestamps graph`.
 
+При анализе ссылок на исходники пути считаются относительно корня checkout:
+`./lib/log.sh` и `ci/../lib/log.sh` нормализуются в `lib/log.sh`. Ссылки вроде
+`../lib/log.sh`, выходящие за корень, пропускаются с предупреждением
+`Skipping unresolved repository source path`, не прерывая сбор. Сборщик не исполняет
+shell и не отслеживает `cd`/рабочую директорию; содержимое пропущенного файла остаётся
+непроверенным. Защита API URL от traversal остаётся включённой.
+
 ## Сбор только выбранных проектов Bitbucket Data Center
 
 В `.env.prod` (либо env-файле локального запуска) укажите **ключи проектов**, не имена:

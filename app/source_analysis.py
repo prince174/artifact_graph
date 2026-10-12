@@ -1,7 +1,35 @@
 from dataclasses import dataclass
+import logging
+import posixpath
+from urllib.parse import unquote
 
 from .analyzer import referenced_scripts
 from .collectors import Repository, RepositoryProvider
+
+
+log = logging.getLogger(__name__)
+
+
+def repository_source_path(path: str) -> str | None:
+    """Normalize checkout-relative paths without guessing a shell working directory."""
+    if not path or path.startswith("/") or "\\" in path or ":" in path:
+        return None
+    if any(ord(char) < 32 or ord(char) == 127 for char in path):
+        return None
+    # Reject encoded path syntax rather than reinterpret a repository filename.
+    if unquote(path) != path:
+        return None
+    parts = []
+    for part in path.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+        else:
+            parts.append(part)
+    return posixpath.join(*parts) if parts else None
 
 
 BUILD_SOURCE_PATHS = (
@@ -40,7 +68,13 @@ async def expand_scripts(provider: RepositoryProvider, repositories: list[Reposi
         seen = set()
         pending = list(source_paths) + referenced_scripts("\n".join(inline_scripts))
         while pending:
-            path = pending.pop(0)
+            raw_path = pending.pop(0)
+            path = repository_source_path(raw_path)
+            if path is None:
+                log.warning("Skipping unresolved repository source path %r in %s/%s: "
+                            "outside checkout or unsupported path syntax; working directory is unknown",
+                            raw_path, repository.namespace, repository.slug)
+                continue
             if path in seen:
                 continue
             seen.add(path)

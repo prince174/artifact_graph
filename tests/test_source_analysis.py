@@ -1,7 +1,39 @@
 import pytest
 
 from app.collectors import Repository
-from app.source_analysis import BUILD_SOURCE_PATHS, ScriptSource, build_source_paths, expand_scripts
+from app.source_analysis import BUILD_SOURCE_PATHS, ScriptSource, build_source_paths, expand_scripts, repository_source_path
+
+
+@pytest.mark.parametrize("path,expected", [
+    ("./lib/log.sh", "lib/log.sh"),
+    ("ci/../lib/log.sh", "lib/log.sh"),
+    ("..lib/log.sh", "..lib/log.sh"),
+    ("../lib/log.sh", None),
+    ("ci/../../lib/log.sh", None),
+    ("../ci/../lib/log.sh", None),
+    ("/lib/log.sh", None),
+    ("C:\\lib\\log.sh", None),
+    ("lib/\nlog.sh", None),
+    ("%2e%2e/lib/log.sh", None),
+    ("lib%2flog.sh", None),
+    (".", None),
+])
+def test_repository_source_paths_stay_inside_checkout(path, expected):
+    assert repository_source_path(path) == expected
+
+
+@pytest.mark.asyncio
+async def test_parent_reference_does_not_abort_scan_or_guess_script_directory(caplog):
+    repo = Repository("bitbucket_dc", "AILAB", "AILAB", "AI", "agent-analytics", "Agent", "url", ())
+    provider = FakeProvider({
+        "ci/build.sh": "bash ../lib/log.sh\nbash ci/../lib/publish.sh",
+        "lib/publish.sh": "docker push registry/app:1\nbash ./ci/build.sh",
+    })
+    sources = await expand_scripts(provider, [repo], ["bash ./ci/build.sh"])
+    assert provider.requests == [("agent-analytics", "ci/build.sh"), ("agent-analytics", "lib/publish.sh")]
+    assert any("docker push" in source.text for source in sources)
+    assert "../lib/log.sh" in caplog.text
+    assert "Skipping unresolved" in caplog.text
 
 
 class FakeProvider:
