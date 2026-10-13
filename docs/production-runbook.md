@@ -109,7 +109,7 @@ test ! -e .env.prod && install -m 600 .env.prod.example .env.prod
 
 Перед изменением production:
 
-1. Убедитесь, что CI для выбранного commit/tag зелёный, а Docker image соответствует ожидаемому Git SHA. Релизные образы публикуются в GHCR по тегам `v*` и имеют provenance attestation.
+1. Убедитесь, что CI для выбранного commit/tag зелёный, а Docker image соответствует ожидаемому Git SHA. Публикацию релизных образов по тегам `v*` и provenance настраивают в корпоративном CI; проверьте их наличие в выбранном registry.
 2. Зафиксируйте текущие Git SHA, `/api/version`, Alembic revision и время последнего успешного скана в заявке на изменение.
 3. Проверьте чистоту checkout: `scripts/deploy.sh` откажется работать поверх dirty tree.
 4. Проверьте конфигурацию без печати значений: `pcompose config --quiet`.
@@ -160,7 +160,7 @@ pcompose exec -T graph alembic current
 
 ```bash
 bash scripts/deploy.sh --prod \
-  https://github.com/prince174/artifact_graph.git \
+  https://bitbucket.isb/scm/infsec/artifact_graph.git \
   /opt/artefact-graph-prod
 ```
 
@@ -168,7 +168,7 @@ bash scripts/deploy.sh --prod \
 
 ```bash
 bash scripts/deploy.sh --prod-external-db \
-  https://github.com/prince174/artifact_graph.git \
+  https://bitbucket.isb/scm/infsec/artifact_graph.git \
   /opt/artefact-graph-prod
 ```
 

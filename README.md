@@ -81,7 +81,7 @@ PostgreSQL сервис не создаёт, не перезапускает и 
 На Linux-хосте:
 
 ```bash
-sudo git clone https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+sudo git clone https://bitbucket.isb/scm/infsec/artifact_graph.git /opt/artefact-graph-prod
 sudo chown -R "$(id -u):$(id -g)" /opt/artefact-graph-prod
 cd /opt/artefact-graph-prod
 umask 077
@@ -127,7 +127,7 @@ docker compose --project-name artefact-graph-prod --env-file .env.prod \
   -f compose.prod.external-db.yaml config --quiet
 
 SMOKE_TIMEOUT_SECONDS=900 bash scripts/deploy.sh --prod-external-db \
-  https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+  https://bitbucket.isb/scm/infsec/artifact_graph.git /opt/artefact-graph-prod
 ```
 
 Проверка после запуска:
@@ -458,7 +458,7 @@ TeamCity:
 Команды ниже выполняются пользователем деплоя в заранее подготовленном каталоге `/opt`:
 
 ```bash
-git clone https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+git clone https://bitbucket.isb/scm/infsec/artifact_graph.git /opt/artefact-graph-prod
 cd /opt/artefact-graph-prod
 umask 077
 cp .env.prod.example .env.prod
@@ -592,7 +592,7 @@ DC ID имеет вид `repo:PROJECT_KEY/repository-slug`, Cloud ID — `repo:w
 cd /opt/artefact-graph-prod
 docker compose --project-name artefact-graph-prod --env-file .env.prod -f compose.prod.yaml config --quiet
 SMOKE_TIMEOUT_SECONDS=900 bash scripts/deploy.sh --prod \
-  https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+  https://bitbucket.isb/scm/infsec/artifact_graph.git /opt/artefact-graph-prod
 ```
 
 Для существующего PostgreSQL используйте другой самостоятельный Compose и режим deploy:
@@ -602,7 +602,7 @@ cd /opt/artefact-graph-prod
 docker compose --project-name artefact-graph-prod --env-file .env.prod \
   -f compose.prod.external-db.yaml config --quiet
 SMOKE_TIMEOUT_SECONDS=900 bash scripts/deploy.sh --prod-external-db \
-  https://github.com/prince174/artifact_graph.git /opt/artefact-graph-prod
+  https://bitbucket.isb/scm/infsec/artifact_graph.git /opt/artefact-graph-prod
 ```
 
 Этот режим не создаёт, не перезапускает и не удаляет внешний PostgreSQL. Перед первым запуском DBA
@@ -831,7 +831,8 @@ docker compose exec -T graph alembic current
 
 The graph container runs `alembic upgrade head` before starting the API. Release
 images expose `GET /api/version`, include the Git commit as an OCI image label,
-and are built by `.github/workflows/ci.yml` for version tags.
+and can be built with `bash scripts/ci.sh test`. Configure tag-based publishing
+in the corporate CI as described in [docs/ci.md](docs/ci.md).
 
 Production preflight, deploy, monitoring, incident, backup/restore, rollback and
 secret-rotation procedures are documented in [docs/production-runbook.md](docs/production-runbook.md).

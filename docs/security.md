@@ -30,21 +30,19 @@ mode 0600. On Windows, restrict its ACL to the operator account.
 Before deployment, run unit tests, browser E2E and dependency vulnerability
 scanning. A passing test suite alone does not prove security.
 
-GitHub Actions also runs `.github/workflows/scheduled-security-scan.yml` every
-day at 03:17 UTC and on demand. It builds the application image from the current
-default branch and retains two Trivy reports for 30 days:
+Сканирование выполняется командой `bash scripts/security-scan.sh` на выделенном
+Linux-агенте с Docker и Trivy 0.74.0. Скрипт собирает текущий commit и сохраняет:
 
-- `trivy-all-high-critical.txt` is the complete High/Critical inventory,
-  including findings without an upstream fix;
-- `trivy-fixable-high-critical.txt` (legacy filename) now fails the workflow for
-  any High/Critical issue, including findings without an available fix.
+- `test-results/security/trivy-all-high-critical.txt` — все High/Critical,
+  включая уязвимости без доступного исправления;
+- `test-results/security/trivy-fixable-high-critical.txt` — отчёт блокирующего
+  этапа; историческое имя сохранено, но проверка включает и неисправленные CVE.
 
-Both reports include unfixable findings; these are no longer excluded from the gate.
-A red scheduled workflow means maintainers must
-rebuild or update the affected dependency and rerun the workflow. GitHub sends
-failure notifications according to each maintainer's repository notification
-settings. Use **Actions → scheduled-security-scan → Run workflow** to verify a
-base-image or dependency update immediately instead of waiting for the next run.
+Наличие любой High/Critical приводит к ненулевому коду завершения. Отчёты остаются
+на агенте при неуспехе. Настройте их публикацию и хранение 30 дней, ежедневный запуск
+в 03:17 UTC, ручной запуск и уведомления в TeamCity согласно [ci.md](ci.md).
+Эти серверные настройки автоматически не создаются. После обновления зависимости
+или базового образа запустите проверку повторно.
 
 ## Проверка от 2026-09-13
 

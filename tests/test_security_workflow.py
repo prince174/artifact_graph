@@ -1,46 +1,47 @@
+import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 
-import yaml
-
+import pytest
 
 ROOT = Path(__file__).parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "scheduled-security-scan.yml"
 
 
-def load_workflow():
-    # BaseLoader keeps the YAML 1.1 word `on` as a string.
-    return yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-
-
-def test_security_scan_runs_daily_and_on_demand_with_read_only_repository_access():
-    workflow = load_workflow()
-    triggers = workflow["on"]
-    assert triggers["schedule"] == [{"cron": "17 3 * * *"}]
-    assert "workflow_dispatch" in triggers
-    assert workflow["permissions"] == {"contents": "read"}
-
-
-def test_security_scan_reports_and_blocks_all_highs_including_unfixed():
-    workflow = load_workflow()
-    steps = workflow["jobs"]["container-vulnerabilities"]["steps"]
-    assert steps[0]["uses"] == "actions/checkout@v5"
-    scans = [step for step in steps if step.get("uses", "").startswith("aquasecurity/trivy-action@")]
+@pytest.mark.skipif(os.name == 'nt' or not shutil.which('bash'), reason='Linux CI scripts')
+@pytest.mark.parametrize('gate_exit', [0, 1])
+def test_security_reports_include_unfixed_and_gate_failure_is_preserved(tmp_path, gate_exit):
+    binary = tmp_path / 'bin'
+    binary.mkdir()
+    calls = tmp_path / 'calls.jsonl'
+    tool = '''#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+with open(os.environ['CALLS'], 'a') as log:
+    log.write(json.dumps([pathlib.Path(sys.argv[0]).name, args]) + '\\n')
+if pathlib.Path(sys.argv[0]).name == 'trivy':
+    pathlib.Path(args[args.index('--output')+1]).write_text('test report')
+    if args[args.index('--exit-code')+1] == '1':
+        sys.exit(int(os.environ['GATE_EXIT']))
+'''
+    for name in ('docker', 'trivy'):
+        path = binary / name
+        path.write_text(tool)
+        path.chmod(0o755)
+    env = dict(os.environ, PATH=f"{binary}:{os.environ['PATH']}", CALLS=str(calls),
+               GATE_EXIT=str(gate_exit), SECURITY_REPORT_DIR=str(tmp_path / 'reports'))
+    git = binary / 'git'
+    git.write_text("#!/bin/sh\nprintf '%s\\n' test-commit\n")
+    git.chmod(0o755)
+    result = subprocess.run(['bash', str(ROOT / 'scripts/security-scan.sh')], env=env, capture_output=True, text=True)
+    assert result.returncode == gate_exit, result.stderr
+    entries = [json.loads(line) for line in calls.read_text().splitlines()]
+    assert entries[0][0] == 'docker'
+    scans = [args for name, args in entries if name == 'trivy']
     assert len(scans) == 2
-    report, gate = scans
-    assert report["with"] == {
-        "scan-type": "image",
-        "version": "v0.74.0",
-        "image-ref": "artifact-graph:security-scan",
-        "scanners": "vuln",
-        "severity": "CRITICAL,HIGH",
-        "ignore-unfixed": "false",
-        "exit-code": "0",
-        "format": "table",
-        "output": "trivy-all-high-critical.txt",
-    }
-    assert gate["with"]["ignore-unfixed"] == "false"
-    assert gate["with"]["exit-code"] == "1"
-    assert gate["with"]["severity"] == "CRITICAL,HIGH"
-    upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v6")
-    assert upload["if"] == "always()"
-    assert upload["with"]["retention-days"] == "30"
+    for scan in scans:
+        assert '--ignore-unfixed=false' in scan
+        assert scan[scan.index('--severity')+1] == 'CRITICAL,HIGH'
+    assert [scan[scan.index('--exit-code')+1] for scan in scans] == ['0', '1']
+    assert len(list((tmp_path / 'reports').glob('*.txt'))) == 2
