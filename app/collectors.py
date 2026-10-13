@@ -287,7 +287,9 @@ class TeamCityCollector(ApiClient):
 
     async def build_types(self):
         selected = settings.selected_teamcity_build_types
-        log.info("teamcity_scope configurations=%r", selected or "ALL")
+        projects = settings.selected_teamcity_projects
+        log.info("teamcity_scope configurations=%r projects=%r", selected or "ALL",
+                 "IGNORED_EXPLICIT_CONFIGURATIONS" if selected else projects or "ALL")
         if selected:
             result = []
             for build_type_id in selected:
@@ -300,10 +302,32 @@ class TeamCityCollector(ApiClient):
                     raise httpx.DecodingError("TeamCity returned a different configuration ID")
                 result.append(summary)
             return result
+        result, seen = [], set()
+        for project_id in projects or (None,):
+            if project_id:
+                project = await self.get_json(
+                    f"/app/rest/projects/id:{quote(project_id, safe='')}", fields="id,name",
+                )
+                if project.get("id") != project_id:
+                    raise httpx.DecodingError("TeamCity returned a different project ID")
+                log.info("teamcity_project_selected id=%r name=%r include_subprojects=true",
+                         project_id, project.get("name"))
+            for summary in await self._project_build_types(project_id):
+                if summary["id"] not in seen:
+                    seen.add(summary["id"])
+                    result.append(summary)
+                    log.debug("teamcity_configuration_selected id=%r project=%r root_project=%r",
+                              summary["id"], summary.get("projectId"), project_id or "ALL")
+        return result
+
+    async def _project_build_types(self, project_id):
         result, start, page_size = [], 0, 100
         while True:
+            locator = f"start:{start},count:{page_size}"
+            if project_id:
+                locator = f"affectedProject:(id:{project_id}),{locator}"
             data = await self.get_json(
-                "/app/rest/buildTypes", locator=f"start:{start},count:{page_size}",
+                "/app/rest/buildTypes", locator=locator,
                 fields="count,nextHref,buildType(id,name,projectId,webUrl,href)",
             )
             page = data.get("buildType", [])

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     teamcity_token: str = ""
     teamcity_build_limit: int = 3
     teamcity_build_type_ids: str = ""
+    teamcity_project_ids: str = ""
     registry_enabled: bool = False
     registry_provider: str = "docker"
     registry_url: str = "http://localhost:5000"
@@ -60,17 +61,21 @@ class Settings(BaseSettings):
     def selected_bitbucket_projects(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(key.strip() for key in self.bitbucket_project_keys.split(",") if key.strip()))
 
-    @field_validator("teamcity_build_type_ids")
+    @field_validator("teamcity_build_type_ids", "teamcity_project_ids")
     @classmethod
-    def validate_build_type_ids(cls, value):
+    def validate_teamcity_ids(cls, value, info):
         if any(not re.fullmatch(r"[A-Za-z0-9_.-]+", item.strip())
                for item in value.split(",") if item.strip()):
-            raise ValueError("TEAMCITY_BUILD_TYPE_IDS must contain comma-separated configuration IDs")
+            raise ValueError(f"{info.field_name.upper()} must contain comma-separated IDs")
         return value
 
     @property
     def selected_teamcity_build_types(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(item.strip() for item in self.teamcity_build_type_ids.split(",") if item.strip()))
+
+    @property
+    def selected_teamcity_projects(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(item.strip() for item in self.teamcity_project_ids.split(",") if item.strip()))
 
 
 settings = Settings()

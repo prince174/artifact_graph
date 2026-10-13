@@ -77,6 +77,7 @@ def test_project_selection_reaches_configmap():
 
 
 def test_teamcity_selection_reaches_configmap():
-    objects = render("--set-string", r"config.TEAMCITY_BUILD_TYPE_IDS=One\,Two")
+    objects = render("--set-string", r"config.TEAMCITY_BUILD_TYPE_IDS=One\,Two", "--set-string", r"config.TEAMCITY_PROJECT_IDS=Root\,Child")
     config = next(x for x in objects if x["kind"] == "ConfigMap" and "TEAMCITY_BUILD_TYPE_IDS" in x.get("data", {}))
     assert config["data"]["TEAMCITY_BUILD_TYPE_IDS"] == "One,Two"
+    assert config["data"]["TEAMCITY_PROJECT_IDS"] == "Root,Child"
