@@ -5,6 +5,8 @@ import json
 import logging
 import secrets
 import time
+from starlette.concurrency import run_in_threadpool
+from .ldap_auth import authenticate_ldap
 from collections import defaultdict, deque
 from urllib.parse import parse_qs
 
@@ -43,7 +45,7 @@ limiter = LoginLimiter()
 
 
 def _key() -> bytes:
-    return hashlib.sha256((settings.web_password + "\0artifact-graph-session-v1").encode()).digest()
+    return hashlib.sha256((settings.web_password + "\0" + settings.web_auth_provider + "\0artifact-graph-session-v1").encode()).digest()
 
 
 def issue_session(username: str) -> tuple[str, str]:
@@ -87,7 +89,10 @@ async def login(request: Request):
     except ValueError:
         return JSONResponse({"detail": "Too many form fields"}, status_code=400)
     username, password = form.get("username", [""])[0], form.get("password", [""])[0]
-    valid = hmac.compare_digest(username.encode(), settings.web_username.encode()) and hmac.compare_digest(password.encode(), settings.web_password.encode())
+    if settings.web_auth_provider == "ldap":
+        valid = await run_in_threadpool(authenticate_ldap, username, password)
+    else:
+        valid = hmac.compare_digest(username.encode(), settings.web_username.encode()) and hmac.compare_digest(password.encode(), settings.web_password.encode())
     if not valid:
         limiter.fail(client)
         log.warning("login failed client=%s user=%s", client, username[:80])

@@ -71,8 +71,8 @@ if mode == "prod-external-db":
     query = parse_qs(database.query)
     if database.scheme != "postgresql+psycopg" or not database.hostname or not database.username or not database.password or database.path in {"", "/"} or database.fragment:
         sys.exit("DATABASE_URL must be a complete postgresql+psycopg URL for the external database")
-    if query.get("sslmode", [""])[-1] not in {"verify-ca", "verify-full"}:
-        sys.exit("External DATABASE_URL must require sslmode=verify-ca or sslmode=verify-full")
+    if query.get("sslmode", [""])[-1] not in {"prefer", "verify-ca", "verify-full"}:
+        sys.exit("External DATABASE_URL must specify sslmode=prefer, verify-ca or verify-full")
     database_password = database.password
 else:
     database_password = services["postgres"]["environment"]["POSTGRES_PASSWORD"]

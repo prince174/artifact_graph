@@ -70,7 +70,7 @@ flowchart LR
 
 Профиль внешней БД фиксирует `DATABASE_MODE=external`: приложение проверяет TLS до создания
 SQLAlchemy engine и Alembic-миграций, включая прямой запуск Compose. Допустимы `sslmode=verify-ca`
-и `verify-full`; параметры, переопределяющие сервер через libpq, запрещены. Режим `internal`
+и `verify-full`, а также явно заданный `prefer`; параметры, переопределяющие сервер через libpq, запрещены. Режим `internal`
 используется только профилем встроенного сервиса `postgres`.
 
 Этот вариант запускает **только Artifact Graph**. Существующие Bitbucket Data Center, TeamCity и
@@ -363,7 +363,54 @@ config:
 для сужения обеих систем задайте оба списка. Dry-run Bitbucket не обходит TeamCity
 и не проверяет доступность выбранных build configurations.
 
-## Расписание обновления
+## Вход через LDAP / Active Directory
+
+В `.env.prod` задайте (пример для AD):
+
+```dotenv
+WEB_AUTH_PROVIDER=ldap
+LDAP_URL=ldaps://ad.company.example:636
+LDAP_BIND_DN=CN=graph-reader,OU=Service Accounts,DC=company,DC=example
+LDAP_BIND_PASSWORD=<пароль служебной учётной записи>
+LDAP_USER_BASE_DN=OU=Users,DC=company,DC=example
+LDAP_USER_FILTER=(&(objectClass=user)(sAMAccountName={username})(memberOf=CN=GraphUsers,OU=Groups,DC=company,DC=example))
+LDAP_CA_FILE=/app/certs/company-ca.pem
+LDAP_TIMEOUT_SECONDS=5
+```
+
+Служебной учётной записи достаточно прав чтения каталога. Для OpenLDAP можно использовать
+`LDAP_USER_FILTER=(uid={username})`. Фильтр определяет, кому разрешён вход; пример AD
+разрешает прямых участников GraphUsers. Все допущенные пользователи имеют одинаковые права
+в приложении, включая ручное обновление. Поиск должен вернуть ровно одного пользователя,
+затем пароль проверяется отдельным bind от его DN. Пустые пароли запрещены.
+Значение логина экранируется перед подстановкой в LDAP-фильтр.
+
+`ldaps://` использует TLS сразу, `ldap://` обязательно выполняет StartTLS до передачи пароля.
+Проверка сертификата обязательна; CA смонтируйте через существующий `TLS_CA_HOST_DIR`.
+При публичном CA `LDAP_CA_FILE` можно оставить пустым. LDAP-запросы ограничены таймаутом
+и выполняются вне event loop. Пароли пользователей не сохраняются.
+
+`WEB_PASSWORD` оставьте случайным секретом длиной от 32 символов: он подписывает сессии.
+В LDAP-режиме локальный логин отключён, автоматического отката при отказе LDAP нет.
+Чтобы вернуть локальный вход, явно задайте `WEB_AUTH_PROVIDER=local` и пересоздайте контейнер.
+Смена режима аннулирует существующие сессии; изменения прав в LDAP применяются при следующем
+входе, уже выданные сессии действуют до выхода или истечения `WEB_SESSION_HOURS`.
+Для Helm обычные параметры задаются в `config`, `LDAP_BIND_PASSWORD` — ключом в `existingSecret`.
+После обновления кода пересоберите образ; одних изменений env для установки LDAP-библиотеки недостаточно.
+
+## PostgreSQL с sslmode=prefer
+
+Допускается явно заданный URL:
+
+```dotenv
+DATABASE_URL=postgresql+psycopg://user:password@db.company.example:5432/graph?sslmode=prefer
+```
+
+`prefer` сначала пробует TLS, но допускает соединение без шифрования. Для проверки
+сертификата и имени сервера продолжайте использовать `verify-full`. Настройка относится
+только к PostgreSQL и не отключает проверку TLS для LDAP, Bitbucket или TeamCity.
+
+## Расписание и глубина истории
 
 Глубина истории TeamCity задаётся в `.env` / `.env.prod`:
 
@@ -581,7 +628,7 @@ DATABASE_URL=postgresql+psycopg://artifact_graph:<encoded-password>@postgres.com
 ```
 
 При внутреннем CA добавьте в тот же URL `&sslrootcert=/app/certs/company-ca.pem` и настройте
-`TLS_CA_HOST_DIR` ниже. Режим `--prod-external-db` отклоняет `sslmode=require`, незашифрованный,
+`TLS_CA_HOST_DIR` ниже. Режим `--prod-external-db` отклоняет `sslmode=require`, `sslmode=disable`,
 неполный или не-psycopg URL. Пароль базы не передавайте в Git URL, командной строке или чат.
 
 | Настройка | Как заполнить |
@@ -593,7 +640,7 @@ DATABASE_URL=postgresql+psycopg://artifact_graph:<encoded-password>@postgres.com
 | `TEAMCITY_BUILD_LIMIT` | По умолчанию 0 — все доступные билды в окне истории; 1–100 — дополнительный общий лимит с учётом очереди. |
 | `TEAMCITY_BUILD_LOOKBACK_DAYS` | Положительное число дней истории, по умолчанию 90. |
 | `POSTGRES_PASSWORD` | Отдельный случайный пароль, минимум 32 символа из `A-Z a-z 0-9 _ -`; hex из команды выше подходит для URL подключения к БД. |
-| `DATABASE_URL` | Только для `--prod-external-db`: полный `postgresql+psycopg://` URL отдельной базы с `sslmode=verify-full` или `verify-ca`. |
+| `DATABASE_URL` | Только для `--prod-external-db`: полный `postgresql+psycopg://` URL отдельной базы с `sslmode=verify-full`, `verify-ca` или явно выбранный `prefer`. |
 | `WEB_PASSWORD` | Другой случайный пароль минимум 32 символа; рекомендуется hex, чтобы исключить интерполяцию `$` в Compose. |
 
 Prod Compose принудительно задаёт `APP_MODE=live`, `DEPLOYMENT_MODE=production`,

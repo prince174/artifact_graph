@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     web_auth_enabled: bool = True
     metrics_token: str = ""
     web_username: str = "root"
+    web_auth_provider: Literal["local", "ldap"] = "local"
+    ldap_url: str = ""
+    ldap_bind_dn: str = ""
+    ldap_bind_password: str = ""
+    ldap_user_base_dn: str = ""
+    ldap_user_filter: str = "(uid={username})"
+    ldap_ca_file: str = ""
+    ldap_timeout_seconds: int = Field(default=5, ge=1, le=30)
     web_password: str = ""
     web_session_hours: int = 12
     web_cookie_secure: bool = False
@@ -56,6 +64,11 @@ class Settings(BaseSettings):
     webhook_allow_http: bool = False
     webhook_timeout_seconds: float = 5.0
     webhook_max_attempts: int = 6
+
+    @field_validator("ldap_user_filter")
+    @classmethod
+    def default_ldap_filter(cls, value):
+        return value or "(uid={username})"
 
     @property
     def selected_bitbucket_projects(self) -> tuple[str, ...]:

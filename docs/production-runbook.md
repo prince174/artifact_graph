@@ -62,7 +62,7 @@ orchestrator -> /health/live и /health/ready
 - `VERIFY_TLS=true` для Bitbucket, TeamCity и Registry/Nexus;
 - уникальный `POSTGRES_PASSWORD` из минимум 32 URL-safe символов (`A-Z`, `a-z`, `0-9`, `_`, `-`), отличный от web-пароля; например, сгенерируйте два независимых значения `openssl rand -hex 32`;
 - либо для внешней БД полный `postgresql+psycopg://` URL отдельной database и роли с
-  `sslmode=verify-full`/`verify-ca`; при внутреннем CA путь `sslrootcert` должен находиться под `/app/certs`;
+  `sslmode=verify-full`/`verify-ca` (либо явно `prefer` с возможным незашифрованным соединением); при внутреннем CA путь `sslrootcert` должен находиться под `/app/certs`;
 - порт 8080 доступен только reverse proxy, например через bind на `127.0.0.1`, служебную Docker network или внутренний load balancer;
 - PostgreSQL не публикует порт наружу;
 - `/metrics`, `/health/live` и `/health/ready` закрыты сетевым ACL: эти маршруты намеренно не требуют web-сессии;

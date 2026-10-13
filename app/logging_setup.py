@@ -8,7 +8,7 @@ class SafeMessages(logging.Filter):
     def filter(self, record):
         message = record.getMessage()
         for name in ("bitbucket_token", "teamcity_token", "web_password", "metrics_token",
-                     "webhook_secret", "registry_token", "database_url"):
+                     "webhook_secret", "registry_token", "database_url", "ldap_bind_password"):
             secret = getattr(settings, name, "")
             if secret:
                 message = message.replace(secret, "[REDACTED]")

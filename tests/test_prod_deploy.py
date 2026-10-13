@@ -236,11 +236,12 @@ def test_external_database_preflight_rejects_incomplete_or_weak_urls(deployment,
 
 
 @LINUX_SHELL
-def test_external_database_preflight_accepts_verified_postgresql_url(deployment):
+@pytest.mark.parametrize("sslmode", ["verify-full", "verify-ca", "prefer"])
+def test_external_database_preflight_accepts_verified_postgresql_url(deployment, sslmode):
     _, run, _, _ = deployment
     def configure(config):
         config["services"].pop("postgres")
-        config["services"]["graph"]["environment"]["DATABASE_URL"] = "postgresql+psycopg://reader:secret@db.example/graph?sslmode=verify-full"
+        config["services"]["graph"]["environment"]["DATABASE_URL"] = f"postgresql+psycopg://reader:secret@db.example/graph?sslmode={sslmode}"
     result, commands = run("--prod-external-db", config_change=configure)
     assert result.returncode == 0, result.stderr
     up = next(command for command in commands if command[0] == "docker" and "up" in command)

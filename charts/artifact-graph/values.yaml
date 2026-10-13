@@ -10,6 +10,13 @@ existingSecret: ""
 migrationSecret: "" # defaults to existingSecret; can contain only DATABASE_URL
 caConfigMap: "" # optional existing ConfigMap, files mounted at /app/certs
 config:
+  WEB_AUTH_PROVIDER: "local"
+  LDAP_URL: ""
+  LDAP_BIND_DN: ""
+  LDAP_USER_BASE_DN: ""
+  LDAP_USER_FILTER: "(uid={username})"
+  LDAP_CA_FILE: ""
+  LDAP_TIMEOUT_SECONDS: "5"
   LOG_LEVEL: DEBUG
   APP_MODE: live
   DEPLOYMENT_MODE: production

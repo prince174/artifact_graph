@@ -43,13 +43,13 @@ spec:
             - configMapRef:
                 name: {{ include "ag.name" . }}
           env:
-            {{- range $key := list "DATABASE_URL" "BITBUCKET_TOKEN" "TEAMCITY_TOKEN" "WEB_PASSWORD" "METRICS_TOKEN" "WEBHOOK_SECRET" }}
+            {{- range $key := list "DATABASE_URL" "BITBUCKET_TOKEN" "TEAMCITY_TOKEN" "WEB_PASSWORD" "METRICS_TOKEN" "WEBHOOK_SECRET" "LDAP_BIND_PASSWORD" }}
             - name: {{ $key }}
               valueFrom:
                 secretKeyRef:
                   name: {{ required "existingSecret is required" $.Values.existingSecret }}
                   key: {{ $key }}
-                  optional: {{ has $key (list "METRICS_TOKEN" "WEBHOOK_SECRET") }}
+                  optional: {{ has $key (list "METRICS_TOKEN" "WEBHOOK_SECRET" "LDAP_BIND_PASSWORD") }}
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

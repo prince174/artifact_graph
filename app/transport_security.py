@@ -25,8 +25,8 @@ def validate_database_settings():
         raise ValueError("Unsupported external database connection parameter")
     if any(not isinstance(value, str) for value in url.query.values()):
         raise ValueError("Duplicate database connection parameters are forbidden")
-    if url.query.get("sslmode") not in {"verify-ca", "verify-full"}:
-        raise ValueError("External database requires sslmode=verify-ca or verify-full")
+    if url.query.get("sslmode") not in {"prefer", "verify-ca", "verify-full"}:
+        raise ValueError("External database requires sslmode=prefer, verify-ca or verify-full")
 
 
 def tls_verification():
@@ -39,6 +39,8 @@ def tls_verification():
 
 
 def validate_runtime_settings():
+    from .ldap_auth import validate_ldap_settings
+    validate_ldap_settings()
     validate_database_settings()
     if not 0 <= settings.teamcity_build_limit <= 100:
         raise ValueError("TEAMCITY_BUILD_LIMIT must be between 0 and 100")

@@ -66,6 +66,12 @@ def test_external_database_rejects_unsafe_options(production, monkeypatch, query
         security.validate_database_settings()
 
 
+@pytest.mark.parametrize("mode", ["prefer", "verify-ca", "verify-full"])
+def test_external_database_accepts_explicit_ssl_modes(production, monkeypatch, mode):
+    monkeypatch.setattr(security.settings, "database_url", f"postgresql+psycopg://u:p@db/graph?sslmode={mode}")
+    security.validate_database_settings()
+
+
 def test_internal_mode_is_restricted_to_bundled_database(production, monkeypatch):
     monkeypatch.setattr(security.settings, "database_mode", "internal")
     monkeypatch.setattr(security.settings, "database_url", "postgresql+psycopg://u:p@postgres/graph")
