@@ -286,6 +286,20 @@ class TeamCityCollector(ApiClient):
         super().__init__(base_url, token, provider="teamcity")
 
     async def build_types(self):
+        selected = settings.selected_teamcity_build_types
+        log.info("teamcity_scope configurations=%r", selected or "ALL")
+        if selected:
+            result = []
+            for build_type_id in selected:
+                log.info("teamcity_configuration_selected id=%r", build_type_id)
+                summary = await self.get_json(
+                    f"/app/rest/buildTypes/id:{quote(build_type_id, safe='')}",
+                    fields="id,name,projectId,webUrl,href",
+                )
+                if summary.get("id") != build_type_id:
+                    raise httpx.DecodingError("TeamCity returned a different configuration ID")
+                result.append(summary)
+            return result
         result, start, page_size = [], 0, 100
         while True:
             data = await self.get_json(

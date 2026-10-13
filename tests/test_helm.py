@@ -74,3 +74,9 @@ def test_project_selection_reaches_configmap():
     objects = render("--set-string", r"config.BITBUCKET_PROJECT_KEYS=ONE\,TWO")
     config = next(x for x in objects if x["kind"] == "ConfigMap" and "BITBUCKET_PROVIDER" in x.get("data", {}))
     assert config["data"]["BITBUCKET_PROJECT_KEYS"] == "ONE,TWO"
+
+
+def test_teamcity_selection_reaches_configmap():
+    objects = render("--set-string", r"config.TEAMCITY_BUILD_TYPE_IDS=One\,Two")
+    config = next(x for x in objects if x["kind"] == "ConfigMap" and "TEAMCITY_BUILD_TYPE_IDS" in x.get("data", {}))
+    assert config["data"]["TEAMCITY_BUILD_TYPE_IDS"] == "One,Two"

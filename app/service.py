@@ -82,7 +82,7 @@ def _mark_stale(nodes: list[dict], reason: str, stale_since=None) -> list[dict]:
 async def refresh():
     async with refresh_lock:
         started = time.monotonic()
-        log.info("scan_start mode=%s provider=%s projects=%r", settings.app_mode, settings.bitbucket_provider, settings.selected_bitbucket_projects or "ALL")
+        log.info("scan_start mode=%s provider=%s projects=%r teamcity_configurations=%r", settings.app_mode, settings.bitbucket_provider, settings.selected_bitbucket_projects or "ALL", settings.selected_teamcity_build_types or "ALL")
         with SessionLocal.begin() as db:
             scan = Scan()
             db.add(scan)

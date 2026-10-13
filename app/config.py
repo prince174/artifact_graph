@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
+import re
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -29,6 +31,7 @@ class Settings(BaseSettings):
     teamcity_public_url: str = "http://localhost:8111"
     teamcity_token: str = ""
     teamcity_build_limit: int = 3
+    teamcity_build_type_ids: str = ""
     registry_enabled: bool = False
     registry_provider: str = "docker"
     registry_url: str = "http://localhost:5000"
@@ -56,6 +59,18 @@ class Settings(BaseSettings):
     @property
     def selected_bitbucket_projects(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(key.strip() for key in self.bitbucket_project_keys.split(",") if key.strip()))
+
+    @field_validator("teamcity_build_type_ids")
+    @classmethod
+    def validate_build_type_ids(cls, value):
+        if any(not re.fullmatch(r"[A-Za-z0-9_.-]+", item.strip())
+               for item in value.split(",") if item.strip()):
+            raise ValueError("TEAMCITY_BUILD_TYPE_IDS must contain comma-separated configuration IDs")
+        return value
+
+    @property
+    def selected_teamcity_build_types(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(item.strip() for item in self.teamcity_build_type_ids.split(",") if item.strip()))
 
 
 settings = Settings()
