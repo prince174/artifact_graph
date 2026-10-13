@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
 import re
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     tls_ca_file: str = ""
     database_url: str = "sqlite:///./graph.db"
     database_mode: str = "external"
-    refresh_minutes: int = 60
     scan_history_limit: int = 100
     incremental_cache_size: int = 2000
     persistent_cache_ttl_hours: int = 168
@@ -30,7 +29,8 @@ class Settings(BaseSettings):
     teamcity_url: str = "http://localhost:8111"
     teamcity_public_url: str = "http://localhost:8111"
     teamcity_token: str = ""
-    teamcity_build_limit: int = 3
+    teamcity_build_limit: int = Field(default=0, ge=0, le=100)
+    teamcity_build_lookback_days: int = Field(default=90, ge=1)
     teamcity_build_type_ids: str = ""
     teamcity_project_ids: str = ""
     registry_enabled: bool = False

@@ -41,7 +41,7 @@ const edges=[
 const details={
 'bb-cloud':['Bitbucket Cloud','Cloud REST 2.0; workspace и репозитории читаются read-only токеном.','Контракт','RepositoryProvider','Секрет','API token'],
 'bb-dc':['Bitbucket Data Center','REST 1.0 для пользовательских проектов, репозиториев и файлов.','Версия','8.19.3+','Секрет','Bearer RO'],
-'teamcity':['TeamCity','Проекты, build configurations и последние запуски каждой конфигурации. TEAMCITY_BUILD_LIMIT: 3 по умолчанию в lab, 5 в production-примере.','История','N builds / config','Входы','logs + artifacts'],
+'teamcity':['TeamCity','Проекты, build configurations и последние запуски каждой конфигурации. TEAMCITY_BUILD_LOOKBACK_DAYS: 90 дней по умолчанию. TEAMCITY_BUILD_LIMIT=0: без дополнительного лимита количества.','История','N builds / config','Входы','logs + artifacts'],
 'scheduler':['Refresh coordinator','Startup scan, расписание и ручной запрос проходят через один lock.','Интервал','60 минут','Manual','POST + CSRF'],
 'repo-provider':['RepositoryProvider','Общий adapter скрывает различия Cloud и Data Center.','Выход','Repository','Защита','origin-bound auth'],
 'tc-collector':['TeamCityCollector','Собирает VCS roots, steps, параметры, builds, logs и artifacts.','Доступ','read-only','Пагинация','включена'],

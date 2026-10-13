@@ -16,7 +16,7 @@
         <mxCell id="tc" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;" value="TeamCity · REST · RO token&#xa;Проекты, configs, VCS roots&#xa;Последние N билдов, logs, artifacts" vertex="1">
           <mxGeometry height="100" width="260" x="30" y="350" as="geometry" />
         </mxCell>
-        <mxCell id="scan" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;" value="Координатор refresh + lock&#xa;Startup / REFRESH_MINUTES / manual + CSRF" vertex="1">
+        <mxCell id="scan" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;" value="Координатор refresh + lock&#xa;Startup / daily 03:00 MSK / manual + CSRF" vertex="1">
           <mxGeometry height="70" width="280" x="350" y="70" as="geometry" />
         </mxCell>
         <mxCell id="collect" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;" value="RepositoryProvider + TeamCityCollector&#xa;Пагинация, origin-bound auth&#xa;Кэш ревизий и входов билдов" vertex="1">

@@ -23,6 +23,7 @@ from .alerts import dispatch_webhooks
 from .transport_security import validate_runtime_settings
 from .security_headers import SecurityHeadersMiddleware
 from .graph_analysis import graph_insights, impact_report
+from .scheduling import schedule_refresh
 
 scheduler = AsyncIOScheduler()
 
@@ -36,9 +37,10 @@ async def lifespan(app):
     logging.getLogger(__name__).info("startup fingerprint=%s log_level=%s projects=%r", fingerprint(), settings.log_level, settings.selected_bitbucket_projects or "ALL")
     validate_runtime_settings()
     await refresh()
-    scheduler.add_job(refresh, "interval", minutes=settings.refresh_minutes, id="refresh", max_instances=1, coalesce=True)
+    schedule_refresh(scheduler, refresh)
     scheduler.add_job(dispatch_webhooks, "interval", minutes=1, id="webhook-outbox", max_instances=1, coalesce=True)
     scheduler.start()
+    logging.getLogger(__name__).info("refresh_schedule daily=03:00 timezone=MSK(UTC+03:00) next_run=%s", scheduler.get_job("refresh").next_run_time)
     yield
     scheduler.shutdown(wait=False)
 
@@ -145,7 +147,11 @@ async def manual_refresh():
 def status():
     with SessionLocal() as db:
         scan = db.query(Scan).order_by(Scan.id.desc()).first()
-    return {"mode": settings.app_mode, "refreshMinutes": settings.refresh_minutes, "lastScan": None if not scan else {"status": scan.status, "message": scan.message, "finishedAt": scan.finished_at, "upstream": json.loads(scan.details or "{}")}}
+    job = scheduler.get_job("refresh")
+    return {"mode": settings.app_mode, "refreshMinutes": 1440,
+            "refreshSchedule": {"time": "03:00", "timezone": "MSK", "utcOffset": "+03:00",
+                                "nextRun": job.next_run_time.isoformat() if job and getattr(job, "next_run_time", None) else None},
+            "lastScan": None if not scan else {"status": scan.status, "message": scan.message, "finishedAt": scan.finished_at, "upstream": json.loads(scan.details or "{}")}}
 
 
 @app.get("/health/live")

@@ -56,7 +56,7 @@ def test_dc_switch_guide_is_explicit_about_isolation_and_acceptance():
     assert "-f compose.prod.yaml" in production
     assert "-f compose.prod.external-db.yaml" in production
     for required in ("BITBUCKET_PROVIDER=datacenter", "TLS_CA_FILE=/app/certs/company-ca.pem",
-                     "TEAMCITY_BUILD_LIMIT=5", "lastScan.status=success", "--prod", "--prod-external-db", "same-origin",
+                     "TEAMCITY_BUILD_LIMIT=0", "lastScan.status=success", "--prod", "--prod-external-db", "same-origin",
                      "backups/prod/", "не копируйте cloud dump"):
         assert required.lower() in production.lower(), required
 

@@ -179,7 +179,7 @@ async def test_teamcity_requests_paused_configs_and_latest_builds_in_any_state()
 
     assert "paused" in requests[0].url.params["fields"]
     assert "state:any" in requests[1].url.params["locator"]
-    assert "count:3" in requests[1].url.params["locator"]
+    assert "count:100" in requests[1].url.params["locator"]
     assert "defaultFilter:false" in requests[1].url.params["locator"]
     assert requests[2].url.path == "/app/rest/buildQueue"
 

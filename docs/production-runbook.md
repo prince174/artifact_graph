@@ -230,7 +230,7 @@ HTTP 200 от `/health/ready` сам по себе недостаточен: deg
 
 | Метрика | Что означает | Рекомендуемая реакция |
 |---|---|---|
-| `artifact_graph_last_scan_age_seconds` | Время с завершения последней попытки scan | Warning после `2 * REFRESH_MINUTES`, critical после `3 * REFRESH_MINUTES` плюс обычная длительность scan |
+| `artifact_graph_last_scan_age_seconds` | Время с завершения последней попытки scan | Warning после 48 часов, critical после 72 часов плюс обычная длительность scan |
 | `artifact_graph_last_scan_duration_seconds` | Длительность последней попытки | Warning при устойчивом росте или превышении окна обновления |
 | `artifact_graph_scans_total{status="failed"}` / `{status="degraded"}` | Число таких scan-ов в сохраняемой истории | Сопоставлять с `/api/status`, scan webhook и логами |
 | `artifact_graph_provider_requests_total` | Запросы по provider/status | Базовая нагрузка и доля ошибок |
@@ -279,7 +279,7 @@ HTTP 200 от `/health/ready` сам по себе недостаточен: deg
 
 - `401`/`403`: токен истёк или отозван, изменились scopes/permissions, заблокирована сервисная учётная запись. Выпустите новый read-only токен, проверьте scan, затем отзовите старый.
 - `404`: изменился base URL, workspace/project/build type удалён либо endpoint скрыт reverse proxy. Сопоставьте endpoint из диагностики с конфигурацией.
-- `429`: превышен rate limit. Не увеличивайте агрессивно retry; сократите частоту scan (`REFRESH_MINUTES`) или согласуйте лимит provider.
+- `429`: превышен rate limit. Не увеличивайте агрессивно retry; сократите число ручных scan или согласуйте лимит provider.
 - `5xx`, timeout, connection reset: проверьте provider health, route, DNS и proxy. Сервис сам повторяет временные ошибки согласно `API_RETRY_ATTEMPTS` и backoff.
 - TLS error: проверьте CA bundle, hostname/SAN и часы; для корпоративного CA проверьте `TLS_CA_HOST_DIR`, контейнерный `TLS_CA_FILE` и доступ к файлу для UID `10001`. Не устраняйте production-инцидент отключением `VERIFY_TLS`.
 - Registry/Nexus: проверьте Registry API v2 endpoint, repository routing и read permission manifest-ов. Ошибка registry может проявляться как `registryStatus=unavailable` для образа, не обязательно как полный отказ карты.

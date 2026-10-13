@@ -43,7 +43,7 @@ def test_secure_production_is_valid(production):
     ("teamcity_public_url", "https://tc?secret=123"), ("verify_tls", False),
     ("web_auth_enabled", False), ("web_cookie_secure", False), ("web_password", "short"),
     ("bitbucket_token", ""), ("teamcity_token", ""), ("app_mode", "demo"),
-    ("teamcity_build_limit", 0), ("teamcity_build_limit", 101),
+    ("teamcity_build_limit", -1), ("teamcity_build_limit", 101),
 ])
 def test_production_rejects_unsafe_settings(production, monkeypatch, key, value):
     monkeypatch.setattr(security.settings, key, value)

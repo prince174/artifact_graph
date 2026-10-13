@@ -3,6 +3,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Protocol
 from urllib.parse import quote, urlsplit
 
@@ -344,17 +345,32 @@ class TeamCityCollector(ApiClient):
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
-        fields = "build(id,buildTypeId,number,status,state,statusText,queuedDate,startDate,finishDate,webUrl)"
-        data = await self.get_json(
-            "/app/rest/builds", locator=f"buildType:{build_type_id},state:any,count:{settings.teamcity_build_limit},defaultFilter:false", fields=fields,
-        )
-        queued = await self.get_json(
-            "/app/rest/buildQueue", locator=f"buildType:(id:{build_type_id})", fields=fields,
-        )
+        fields = "nextHref,build(id,buildTypeId,number,status,state,statusText,queuedDate,startDate,finishDate,webUrl)"
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=settings.teamcity_build_lookback_days)).strftime("%Y%m%dT%H%M%S%z")
+        limit = settings.teamcity_build_limit
+        log.debug("teamcity_build_window configuration=%r days=%s since=%s limit=%s",
+                  build_type_id, settings.teamcity_build_lookback_days, cutoff, limit or "ALL")
+        groups = []
+        for endpoint, date_filter in (("builds", f"sinceDate:{cutoff},state:any,defaultFilter:false"),
+                                      ("buildQueue", f"queuedDate:(date:{cutoff},condition:after)")):
+            builds, visited = [], set()
+            path = f"/app/rest/{endpoint}"
+            params = {"fields": fields, "locator": f"buildType:(id:{build_type_id}),{date_filter},start:0,count:{limit or 100}"}
+            while True:
+                if path in visited:
+                    raise httpx.DecodingError("TeamCity build pagination repeated a page")
+                visited.add(path)
+                data = await self.get_json(path, **params)
+                page = data.get("build", [])
+                builds.extend(page)
+                if not data.get("nextHref") or (limit and len(builds) >= limit):
+                    break
+                path, params = data["nextHref"], {}
+            groups.append(builds)
         result = {}
-        for build in queued.get("build", []) + data.get("build", []):
+        for build in groups[1] + groups[0]:
             result[str(build["id"])] = build
-        return list(result.values())[:settings.teamcity_build_limit]
+        return list(result.values())[:limit] if limit else list(result.values())
 
     async def build_log(self, build_id: str, max_bytes: int = 5_000_000) -> str:
         chunks, size = [], 0

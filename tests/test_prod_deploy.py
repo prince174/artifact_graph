@@ -33,7 +33,7 @@ def test_production_compose_is_an_isolated_hardened_external_server_stack():
     assert env["APP_MODE"] == "live" and env["DEPLOYMENT_MODE"] == "production"
     assert env["VERIFY_TLS"] == env["WEB_AUTH_ENABLED"] == env["WEB_COOKIE_SECURE"] == "true"
     assert env["REGISTRY_ENABLED"] == "false"
-    assert env["TEAMCITY_BUILD_LIMIT"] == "${TEAMCITY_BUILD_LIMIT:-5}"
+    assert env["TEAMCITY_BUILD_LIMIT"] == "${TEAMCITY_BUILD_LIMIT:-0}"
     assert "POSTGRES_PASSWORD:?" in env["DATABASE_URL"]
     assert "WEB_PASSWORD:?" in env["WEB_PASSWORD"]
     assert "POSTGRES_PASSWORD:?" in postgres["environment"]["POSTGRES_PASSWORD"]
@@ -64,7 +64,7 @@ def test_production_example_has_no_working_secrets():
             values[key] = value
     assert all(values[name] == "" for name in ("POSTGRES_PASSWORD", "DATABASE_URL", "WEB_PASSWORD", "BITBUCKET_TOKEN", "TEAMCITY_TOKEN"))
     assert values["BITBUCKET_PROVIDER"] == "datacenter"
-    assert values["TEAMCITY_BUILD_LIMIT"] == "5"
+    assert values["TEAMCITY_BUILD_LIMIT"] == "0"
     assert values["TLS_CA_FILE"] == ""
 
 

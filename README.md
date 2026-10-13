@@ -7,8 +7,8 @@
 Python-сервис строит интерактивный граф `Bitbucket project/repository → TeamCity project/build configuration → build`.
 Он сопоставляет системы по нормализованному URL VCS root, находит `docker push` и `podman push` в
 script steps и связанных исходниках (в том числе `pom.xml`), правило `**/sbom.json => artifacts`
-и последние запуски каждой конфигурации (`TEAMCITY_BUILD_LIMIT`): 3 по умолчанию в lab,
-5 для расширенной приёмочной матрицы и в prod.
+и запуски каждой конфигурации за последние 90 дней (`TEAMCITY_BUILD_LOOKBACK_DAYS`).
+Дополнительный лимит количества (`TEAMCITY_BUILD_LIMIT`) по умолчанию отключён: `0`.
 Push и SBOM отражаются цветом и деталями соответствующего build, без отдельных узлов на карте.
 
 Bitbucket подключается через общий контракт `RepositoryProvider`. Поддерживаются адаптеры
@@ -50,7 +50,7 @@ flowchart LR
     DB -->|snapshots, diff, stale fallback| API
 ```
 
-1. При старте, вручную и затем раз в `REFRESH_MINUTES` сервис выполняет read-only обход BB и TC.
+1. При старте, вручную и затем ежедневно в 03:00 МСК (UTC+03:00) сервис выполняет read-only обход BB и TC.
 2. Адаптер Data Center читает пользовательские проекты, репозитории, default branch, текущую ревизию
    и нужные файлы. TeamCity-адаптер читает проекты, VCS roots, конфигурации и последние билды.
 3. Репозиторий связывается с build configuration по нормализованному clone URL и URL VCS root.
@@ -103,12 +103,12 @@ BITBUCKET_TOKEN=<Bitbucket-Data-Center-RO-token>
 TEAMCITY_URL=https://teamcity.company.example/teamcity
 TEAMCITY_PUBLIC_URL=https://teamcity.company.example/teamcity
 TEAMCITY_TOKEN=<TeamCity-RO-token>
-TEAMCITY_BUILD_LIMIT=5
+TEAMCITY_BUILD_LIMIT=0
 
 WEB_USERNAME=root
 WEB_PASSWORD=<random-value-from-openssl>
 GRAPH_PORT=18080
-REFRESH_MINUTES=60
+# Плановое обновление: ежедневно в 03:00 МСК
 ```
 
 Если BB, TC или PostgreSQL используют внутренний CA, поместите публичный PEM bundle на хост и добавьте:
@@ -358,10 +358,39 @@ config:
 
 После изменения пересоздайте контейнер (`dc up -d graph` с вашим Compose-проектом)
 или обновите Helm по инструкции. На старте лог `teamcity_scope` показывает фактический
-список либо `ALL`. `TEAMCITY_BUILD_LIMIT` задаёт число билдов каждой конфигурации
+список либо `ALL`. `TEAMCITY_BUILD_LIMIT` задаёт дополнительный предел числа билдов каждой конфигурации (`0` — без ограничения)
 и работает независимо от списка ID. Фильтр `BITBUCKET_PROJECT_KEYS` также независим:
 для сужения обеих систем задайте оба списка. Dry-run Bitbucket не обходит TeamCity
 и не проверяет доступность выбранных build configurations.
+
+## Расписание обновления
+
+Глубина истории TeamCity задаётся в `.env` / `.env.prod`:
+
+```dotenv
+TEAMCITY_BUILD_LOOKBACK_DAYS=90
+TEAMCITY_BUILD_LIMIT=0
+```
+
+Глубина — положительное целое число дней назад от момента запроса, по времени старта билда;
+для очереди используется время постановки. API фильтрует историю по дате, страницы обходятся последовательно
+([TeamCity API](https://www.jetbrains.com/help/teamcity/rest/get-build-details.html)).
+`TEAMCITY_BUILD_LIMIT=0` позволяет получить всю доступную историю в этом окне;
+значение 1–100 дополнительно ограничивает число билдов каждой конфигурации, с приоритетом очереди.
+В существующем env-файле замените прежний лимит 3/5 на 0, если нужна вся история за 90 дней.
+Удалённые политикой хранения TeamCity билды восстановить через API нельзя.
+Для Helm используются одноимённые ключи в `config`. При `LOG_LEVEL=DEBUG` событие
+`teamcity_build_window` показывает конфигурацию, глубину, дату отсечения и лимит.
+
+Плановый сбор выполняется раз в сутки в **03:00 МСК (UTC+03:00)** независимо
+от часового пояса хоста или контейнера. Первичный сбор при старте и ручной запуск сохраняются.
+Старая переменная `REFRESH_MINUTES` больше не используется; её можно удалить из своего env-файла.
+В `/api/status` поле `refreshSchedule` содержит расписание и `nextRun` с часовым смещением;
+`refreshMinutes=1440` сохранено для совместимости проверок свежести графа.
+Лог `refresh_schedule` также показывает ближайший запуск.
+Если сервис выключен в 03:00, при следующем старте выполняется первичный сбор,
+а следующий плановый запуск назначается на ближайшие 03:00. Задержка работающего
+планировщика до пяти минут допускается; более поздний пропущенный запуск не догоняется.
 
 ## Сбор выбранных проектов TeamCity
 
@@ -536,8 +565,8 @@ BITBUCKET_TOKEN=<DC-read-only-token>
 TEAMCITY_URL=https://teamcity.company.example/teamcity
 TEAMCITY_PUBLIC_URL=https://teamcity.company.example/teamcity
 TEAMCITY_TOKEN=<TC-read-only-token>
-TEAMCITY_BUILD_LIMIT=5
-REFRESH_MINUTES=60
+TEAMCITY_BUILD_LIMIT=0
+# Плановое обновление: ежедневно в 03:00 МСК
 GRAPH_PORT=18080
 POSTGRES_PASSWORD=<first-random-hex-value>
 WEB_USERNAME=root
@@ -561,7 +590,8 @@ DATABASE_URL=postgresql+psycopg://artifact_graph:<encoded-password>@postgres.com
 | `TEAMCITY_URL` | HTTPS URL, доступный контейнеру, с реальным context path при наличии. |
 | `TEAMCITY_PUBLIC_URL` | HTTPS URL того же TC для ссылок в браузере; может иметь другой hostname/context path. |
 | `BITBUCKET_EMAIL`, `BITBUCKET_WORKSPACE`, `BITBUCKET_AUTH` | Только Cloud; для DC первые два можно оставить пустыми, третий игнорируется. |
-| `TEAMCITY_BUILD_LIMIT` | От 1 до 100, по умолчанию 5 в prod. Это общий лимит последних запусков с учётом очереди, а не 5 успешных плюс все остальные. |
+| `TEAMCITY_BUILD_LIMIT` | По умолчанию 0 — все доступные билды в окне истории; 1–100 — дополнительный общий лимит с учётом очереди. |
+| `TEAMCITY_BUILD_LOOKBACK_DAYS` | Положительное число дней истории, по умолчанию 90. |
 | `POSTGRES_PASSWORD` | Отдельный случайный пароль, минимум 32 символа из `A-Z a-z 0-9 _ -`; hex из команды выше подходит для URL подключения к БД. |
 | `DATABASE_URL` | Только для `--prod-external-db`: полный `postgresql+psycopg://` URL отдельной базы с `sslmode=verify-full` или `verify-ca`. |
 | `WEB_PASSWORD` | Другой случайный пароль минимум 32 символа; рекомендуется hex, чтобы исключить интерполяцию `$` в Compose. |

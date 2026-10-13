@@ -40,8 +40,8 @@ def tls_verification():
 
 def validate_runtime_settings():
     validate_database_settings()
-    if not 1 <= settings.teamcity_build_limit <= 100:
-        raise ValueError("TEAMCITY_BUILD_LIMIT must be between 1 and 100")
+    if not 0 <= settings.teamcity_build_limit <= 100:
+        raise ValueError("TEAMCITY_BUILD_LIMIT must be between 0 and 100")
     if settings.deployment_mode not in {"lab", "production"}:
         raise ValueError("DEPLOYMENT_MODE must be lab or production")
     if settings.deployment_mode != "production":

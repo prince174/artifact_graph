@@ -28,7 +28,6 @@ services:
     environment:
       APP_MODE: demo
       DATABASE_URL: postgresql+psycopg://graph_e2e:graph-e2e-password@postgres-e2e:5432/graph_e2e
-      REFRESH_MINUTES: "60"
       REGISTRY_ENABLED: "false"
       VERIFY_TLS: "true"
       WEB_AUTH_ENABLED: "true"
