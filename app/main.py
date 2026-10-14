@@ -1,4 +1,7 @@
 import json
+import asyncio
+import logging
+from contextlib import suppress
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -28,6 +31,13 @@ from .scheduling import schedule_refresh
 scheduler = AsyncIOScheduler()
 
 
+async def initial_refresh():
+    try:
+        await refresh()
+    except Exception as exc:
+        logging.getLogger(__name__).error("initial_refresh_failed error=%s", type(exc).__name__)
+
+
 @asynccontextmanager
 async def lifespan(app):
     from .logging_setup import configure_logging
@@ -36,13 +46,18 @@ async def lifespan(app):
     configure_logging()
     logging.getLogger(__name__).info("startup fingerprint=%s log_level=%s projects=%r", fingerprint(), settings.log_level, settings.selected_bitbucket_projects or "ALL")
     validate_runtime_settings()
-    await refresh()
     schedule_refresh(scheduler, refresh)
     scheduler.add_job(dispatch_webhooks, "interval", minutes=1, id="webhook-outbox", max_instances=1, coalesce=True)
     scheduler.start()
     logging.getLogger(__name__).info("refresh_schedule daily=03:00 timezone=MSK(UTC+03:00) next_run=%s", scheduler.get_job("refresh").next_run_time)
-    yield
-    scheduler.shutdown(wait=False)
+    startup_task = asyncio.create_task(initial_refresh(), name="initial-refresh")
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
+        startup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await startup_task
 
 
 app = FastAPI(title="Artefact Graph", version=__version__, lifespan=lifespan)
@@ -165,9 +180,9 @@ def health_ready():
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
             scan = db.query(Scan).filter(Scan.status.in_(("success", "degraded"))).order_by(Scan.id.desc()).first()
-        if not scan:
-            raise HTTPException(503, "No successful scan yet")
-        return {"status": "ready", "lastUsableScan": scan.finished_at, "degraded": scan.status == "degraded"}
+        return {"status": "ready", "graphReady": scan is not None,
+                "lastUsableScan": scan.finished_at if scan else None,
+                "degraded": scan.status == "degraded" if scan else False}
     except HTTPException:
         raise
     except Exception:

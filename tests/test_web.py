@@ -57,7 +57,7 @@ def test_ui_preserves_viewport_explains_color_and_polls_for_new_scan():
     assert "zoom:cy.zoom(),pan:cy.pan()" in PAGE
     assert "cy.zoom(viewport.zoom);cy.pan(viewport.pan)" in PAGE
     assert "Причина цвета" in PAGE
-    assert "setInterval(status,60000)" in PAGE
+    assert "setInterval(status,10000)" in PAGE
     assert "lastScanFinished" in PAGE
 
 

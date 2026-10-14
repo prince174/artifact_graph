@@ -410,6 +410,16 @@ DATABASE_URL=postgresql+psycopg://user:password@db.company.example:5432/graph?ss
 сертификата и имени сервера продолжайте использовать `verify-full`. Настройка относится
 только к PostgreSQL и не отключает проверку TLS для LDAP, Bitbucket или TeamCity.
 
+## Доступность веб-интерфейса при сборе
+
+Первичный сбор выполняется в фоне. После проверки настроек веб-интерфейс принимает
+запросы, не ожидая Bitbucket/TeamCity. При повторном запуске отображается сохранённый
+граф; при первом — пустая карта со статусом сбора. Интерфейс проверяет состояние каждые
+10 секунд и загружает данные после завершения успешного или частичного сбора.
+Ошибка первичного сбора не останавливает веб: можно посмотреть статус и повторить сбор вручную.
+Проверки настроек и миграции БД всё ещё выполняются до открытия HTTP.
+`/health/ready` проверяет доступность БД, а `graphReady` сообщает о наличии пригодного скана.
+
 ## Расписание и глубина истории
 
 Глубина истории TeamCity задаётся в `.env` / `.env.prod`:
@@ -934,7 +944,7 @@ scan. Enable them with `WEBHOOK_ENABLED=true`, an HTTPS `WEBHOOK_URL`, and a ran
 `scan.recovered`, and `graph.outputs.changed`; deliveries are retried asynchronously.
 
 - `GET /health/live` checks that the process is alive.
-- `GET /health/ready` checks PostgreSQL and requires at least one usable `success` or `degraded` scan.
+- `GET /health/ready` checks PostgreSQL; `graphReady` separately indicates whether a usable scan exists.
 - `GET /metrics` exposes Prometheus scan, graph-size, duration, and age metrics.
 - `GET /api/scans?limit=20` returns recent scan history. `SCAN_HISTORY_LIMIT` controls retention.
 
