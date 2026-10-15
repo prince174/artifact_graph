@@ -82,9 +82,17 @@ class FakeTeamCityWithMirror(FakeTeamCity):
 
 @pytest.mark.asyncio
 async def test_live_collection_connects_repo_config_build_push_and_sbom(monkeypatch):
+    from app.scan_progress import ScanProgress
+    progress = ScanProgress()
+    progress.start()
+    monkeypatch.setattr(service, "scan_progress", progress)
     monkeypatch.setattr(service, "repository_provider", FakeBitbucket)
     monkeypatch.setattr(service, "TeamCityCollector", FakeTeamCity)
     nodes, edges = await service.collect_live()
+    state = progress.snapshot()
+    assert state["configurationsDone"] == state["configurationsTotal"]
+    assert state["buildsDone"] == 1
+    assert state["repositories"] == 1
     by_id = {node["id"]: node for node in nodes}
     relations = {(edge["source"], edge["target"], edge["relation"]) for edge in edges}
 

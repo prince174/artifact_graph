@@ -1,4 +1,5 @@
 import asyncio
+from .scan_progress import scan_progress
 import logging
 import re
 import time
@@ -127,11 +128,15 @@ class BitbucketDataCenterCollector(ApiClient):
     async def repositories(self):
         log.debug("bitbucket_scope projects=%r", self.project_keys or "ALL")
         paths = [f"/rest/api/1.0/projects/{quote(key, safe='')}/repos" for key in self.project_keys]
-        for path in paths or ["/rest/api/1.0/repos"]:
+        if self.project_keys:
+            scan_progress.scope("bitbucket", ", ".join(self.project_keys), self.project_keys)
+        for index, path in enumerate(paths or ["/rest/api/1.0/repos"]):
             log.info("bitbucket_project_start path=%r", path)
             async for repo in self._repositories_at(path):
                 yield repo
             log.info("bitbucket_project_complete path=%r", path)
+            if self.project_keys:
+                scan_progress.complete("bb_project", self.project_keys[index])
 
     async def _repositories_at(self, path):
         start = 0
@@ -292,6 +297,7 @@ class TeamCityCollector(ApiClient):
         log.info("teamcity_scope configurations=%r projects=%r", selected or "ALL",
                  "IGNORED_EXPLICIT_CONFIGURATIONS" if selected else projects or "ALL")
         if selected:
+            scan_progress.scope("configurations", ", ".join(selected), selected)
             result = []
             for build_type_id in selected:
                 log.info("teamcity_configuration_selected id=%r", build_type_id)
@@ -313,7 +319,10 @@ class TeamCityCollector(ApiClient):
                     raise httpx.DecodingError("TeamCity returned a different project ID")
                 log.info("teamcity_project_selected id=%r name=%r include_subprojects=true",
                          project_id, project.get("name"))
-            for summary in await self._project_build_types(project_id):
+            summaries = await self._project_build_types(project_id)
+            if project_id:
+                scan_progress.scope("teamcity", project_id, [item["id"] for item in summaries])
+            for summary in summaries:
                 if summary["id"] not in seen:
                     seen.add(summary["id"])
                     result.append(summary)

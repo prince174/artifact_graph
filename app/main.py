@@ -27,6 +27,7 @@ from .transport_security import validate_runtime_settings
 from .security_headers import SecurityHeadersMiddleware
 from .graph_analysis import graph_insights, impact_report
 from .scheduling import schedule_refresh
+from .scan_progress import scan_progress
 
 scheduler = AsyncIOScheduler()
 
@@ -164,6 +165,7 @@ def status():
         scan = db.query(Scan).order_by(Scan.id.desc()).first()
     job = scheduler.get_job("refresh")
     return {"mode": settings.app_mode, "refreshMinutes": 1440,
+            "progress": scan_progress.snapshot(),
             "refreshSchedule": {"time": "03:00", "timezone": "MSK", "utcOffset": "+03:00",
                                 "nextRun": job.next_run_time.isoformat() if job and getattr(job, "next_run_time", None) else None},
             "lastScan": None if not scan else {"status": scan.status, "message": scan.message, "finishedAt": scan.finished_at, "upstream": json.loads(scan.details or "{}")}}

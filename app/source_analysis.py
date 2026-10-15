@@ -1,3 +1,4 @@
+from .scan_progress import scan_progress
 from dataclasses import dataclass
 import logging
 import posixpath
@@ -65,6 +66,7 @@ def build_source_paths(step_type: str, properties: dict[str, str]) -> list[str]:
 async def expand_scripts(provider: RepositoryProvider, repositories: list[Repository], inline_scripts: list[str], source_paths=()) -> list[ScriptSource]:
     sources = [ScriptSource("teamcity:inline", text) for text in inline_scripts if text]
     for repository in repositories:
+        scan_progress.update(stage="sources", repository=repository.slug)
         log.info("source_analysis_start project=%r repo=%r commit=%s", repository.project_key, repository.slug, repository.revision)
         seen = set()
         pending = list(source_paths) + referenced_scripts("\n".join(inline_scripts))

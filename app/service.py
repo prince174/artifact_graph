@@ -1,3 +1,4 @@
+from .scan_progress import scan_progress
 import json
 import re
 import asyncio
@@ -87,6 +88,7 @@ async def refresh():
             scan = Scan()
             db.add(scan)
         previous_nodes, previous_edges = _load_graph()
+        scan_progress.start()
         scan_details = {}
         status = "failed"
         try:
@@ -94,6 +96,7 @@ async def refresh():
                 nodes, edges = dataset()
             else:
                 nodes, edges = await collect_live()
+            scan_progress.update(stage="saving", project="", repository="", configuration="", build="")
             annotate_visual_state(nodes, edges)
             annotate_mapping_quality(nodes, edges)
             _save(nodes, edges)
@@ -118,6 +121,7 @@ async def refresh():
                 status, message = "failed", str(exc)
                 raise
         finally:
+            scan_progress.finish(status)
             log.info("scan_finish status=%s elapsed=%.3fs", status, time.monotonic() - started)
             with SessionLocal.begin() as db:
                 row = db.get(Scan, scan.id)
@@ -138,6 +142,7 @@ def _save_snapshot(scan_id: int, nodes: list[dict], edges: list[dict]) -> None:
 
 
 async def collect_live():
+    scan_progress.update(stage="bitbucket")
     log.info("collection_stage bitbucket_repositories")
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
     mapping_rules = load_mapping_rules(settings.mapping_rules_path)
@@ -147,7 +152,10 @@ async def collect_live():
     previous_by_id = {node["id"]: node for node in previous_nodes}
     nodes, edges, repo_by_url, repo_records = [], [], {}, {}
     try:
+        repository_count = 0
         async for repo in bb.repositories():
+            repository_count += 1
+            scan_progress.update(project=repo.project_key, repository=repo.slug, repositories=repository_count)
             pid = f"bb-project:{repo.namespace}/{repo.project_key}"
             rid = f"repo:{repo.namespace}/{repo.slug}"
             nodes.append({"id": rid, "kind": "repository", "label": repo.name, "url": repo.web_url, "provider": repo.provider, "active": repo.active, "defaultBranch": repo.default_branch, "revision": repo.revision, "sourceAvailable": repo.source_available})
@@ -159,7 +167,14 @@ async def collect_live():
                 if normalized := normalize_url(clone_url):
                     repo_by_url.setdefault(normalized, set()).add(rid)
         log.info("collection_stage teamcity_configurations repositories=%s", len(repo_records))
-        for summary in await tc.build_types():
+        scan_progress.update(stage="teamcity_list", project="", repository="")
+        summaries = await tc.build_types()
+        scan_progress.update(configurationsTotal=len(summaries))
+        builds_done = 0
+        for config_index, summary in enumerate(summaries):
+            if config_index:
+                scan_progress.complete("configuration", summaries[config_index - 1]["id"])
+            scan_progress.update(stage="configuration", configurationsDone=config_index, project=summary.get("projectId", ""), configuration=summary["id"], repository="", build="", buildIndex=0, buildsTotal=None)
             log.info("teamcity_configuration_start project=%r configuration=%r", summary.get("projectId"), summary["id"])
             try:
                 detail = await tc.build_type(summary["id"])
@@ -241,7 +256,11 @@ async def collect_live():
                     pushed_images.append({"image": push["image"], "engine": push["engine"], "evidence": source.path, **manifest})
             artifact_rules = teamcity_properties(detail, "settings").get("artifactRules", "")
             sbom_rule = artifact_rules if publishes_sbom(artifact_rules) else ""
-            for build in await tc.builds(detail["id"]):
+            scan_progress.update(stage="build_list")
+            builds = await tc.builds(detail["id"])
+            scan_progress.update(buildsTotal=len(builds))
+            for build_index, build in enumerate(builds, 1):
+                scan_progress.update(stage="build", build=str(build["id"]), buildIndex=build_index)
                 log.debug("teamcity_build_start project=%r configuration=%r build=%r", detail["projectId"], detail["id"], build["id"])
                 finished = build.get("state", "finished") == "finished"
                 persistent_build = _persistent("build")
@@ -291,7 +310,12 @@ async def collect_live():
                 run_id = node["id"]
                 nodes.append(node)
                 edges.append({"source": bid, "target": run_id, "relation": "ran_as"})
+                builds_done += 1
+                scan_progress.update(buildsDone=builds_done)
             log.info("teamcity_configuration_complete project=%r configuration=%r", detail["projectId"], detail["id"])
+        if summaries:
+            scan_progress.complete("configuration", summaries[-1]["id"])
+        scan_progress.update(configurationsDone=len(summaries))
         nodes, edges = deduplicate(nodes), deduplicate(edges, ("source", "target", "relation"))
         annotate_visual_state(nodes, edges)
         return nodes, edges
