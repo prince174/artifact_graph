@@ -14,7 +14,7 @@ config:
   LDAP_URL: ""
   LDAP_BIND_DN: ""
   LDAP_USER_BASE_DN: ""
-  LDAP_USER_FILTER: "(uid={username})"
+  LDAP_USER_FILTER: "(&(objectClass=user)(sAMAccountName={username}))"
   LDAP_CA_FILE: ""
   LDAP_TIMEOUT_SECONDS: "5"
   LOG_LEVEL: DEBUG

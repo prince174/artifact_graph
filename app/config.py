@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     ldap_bind_dn: str = ""
     ldap_bind_password: str = ""
     ldap_user_base_dn: str = ""
-    ldap_user_filter: str = "(uid={username})"
+    ldap_user_filter: str = "(&(objectClass=user)(sAMAccountName={username}))"
     ldap_ca_file: str = ""
     ldap_timeout_seconds: int = Field(default=5, ge=1, le=30)
     web_password: str = ""
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     @field_validator("ldap_user_filter")
     @classmethod
     def default_ldap_filter(cls, value):
-        return value or "(uid={username})"
+        return value or "(&(objectClass=user)(sAMAccountName={username}))"
 
     @property
     def selected_bitbucket_projects(self) -> tuple[str, ...]:

@@ -373,14 +373,15 @@ LDAP_URL=ldaps://ad.company.example:636
 LDAP_BIND_DN=CN=graph-reader,OU=Service Accounts,DC=company,DC=example
 LDAP_BIND_PASSWORD=<пароль служебной учётной записи>
 LDAP_USER_BASE_DN=OU=Users,DC=company,DC=example
-LDAP_USER_FILTER=(&(objectClass=user)(sAMAccountName={username})(memberOf=CN=GraphUsers,OU=Groups,DC=company,DC=example))
+LDAP_USER_FILTER=(&(objectClass=user)(sAMAccountName={username}))
 LDAP_CA_FILE=/app/certs/company-ca.pem
 LDAP_TIMEOUT_SECONDS=5
 ```
 
-Служебной учётной записи достаточно прав чтения каталога. Для OpenLDAP можно использовать
-`LDAP_USER_FILTER=(uid={username})`. Фильтр определяет, кому разрешён вход; пример AD
-разрешает прямых участников GraphUsers. Все допущенные пользователи имеют одинаковые права
+Служебной учётной записи достаточно прав чтения каталога. По умолчанию используется
+фильтр Active Directory по `sAMAccountName`, приведённый выше. Он разрешает вход
+пользователям в `LDAP_USER_BASE_DN` с правильным паролем, без ограничения по группе.
+Все допущенные пользователи имеют одинаковые права
 в приложении, включая ручное обновление. Поиск должен вернуть ровно одного пользователя,
 затем пароль проверяется отдельным bind от его DN. Пустые пароли запрещены.
 Значение логина экранируется перед подстановкой в LDAP-фильтр.

@@ -6,14 +6,20 @@ import pytest
 from fastapi import FastAPI, Request
 
 from app import auth, ldap_auth
-from app.config import settings
+from app.config import Settings, settings
+
+
+def test_default_filter_is_active_directory():
+    expected = "(&(objectClass=user)(sAMAccountName={username}))"
+    assert Settings(_env_file=None).ldap_user_filter == expected
+    assert Settings(_env_file=None, ldap_user_filter="").ldap_user_filter == expected
 
 
 @pytest.fixture
 def ldap_config(monkeypatch):
     for key, value in dict(web_auth_provider="ldap", ldap_url="ldaps://directory.example",
                            ldap_bind_dn="cn=reader", ldap_bind_password="reader-secret",
-                           ldap_user_base_dn="dc=example", ldap_user_filter="(uid={username})",
+                           ldap_user_base_dn="dc=example", ldap_user_filter="(&(objectClass=user)(sAMAccountName={username}))",
                            ldap_ca_file="", web_password="s" * 32).items():
         monkeypatch.setattr(settings, key, value)
 
@@ -50,7 +56,7 @@ def test_ldap_search_bind_and_cleanup(ldap_config, monkeypatch, secure, count, p
             if self.password == "wrong": raise LDAPInvalidCredentialsResult()
             return True
         def search(self, base, query, **kwargs):
-            assert query == r"(uid=alice\2a\29\28uid=\2a\29)"
+            assert query == r"(&(objectClass=user)(sAMAccountName=alice\2a\29\28uid=\2a\29))"
             assert kwargs["size_limit"] == 2
         def unbind(self): self.events.append("unbind")
     monkeypatch.setattr(ldap3, "Connection", Connection)
