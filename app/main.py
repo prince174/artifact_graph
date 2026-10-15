@@ -28,6 +28,7 @@ from .security_headers import SecurityHeadersMiddleware
 from .graph_analysis import graph_insights, impact_report
 from .scheduling import schedule_refresh
 from .scan_progress import scan_progress
+from .graph_queries import repository_search
 
 scheduler = AsyncIOScheduler()
 
@@ -93,16 +94,22 @@ def version(): return {"version": __version__}
 
 @app.get("/api/graph")
 def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100), build_limit: int = Query(5, ge=1, le=20)):
-    with SessionLocal() as db:
-        nodes = db.query(Node).all(); edges = db.query(Edge).all()
-    result_nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in nodes]
-    result_edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in edges]
     try:
+        with SessionLocal() as db:
+            selected = repository_search(db, q, cursor, limit) if q and not mapping_issues else None
+            if selected is None:
+                nodes = db.query(Node).all()
+                edges = db.query(Edge).all()
+                result_nodes = [{"id": n.id, "kind": n.kind, "label": n.label, **json.loads(n.data)} for n in nodes]
+                result_edges = [{"source": e.source, "target": e.target, "relation": e.relation, **json.loads(e.data)} for e in edges]
+            else:
+                result_nodes, result_edges, pagination = selected
         if mapping_issues:
             result_nodes, result_edges = filter_graph(result_nodes, result_edges, mapping_issues=True)
             result_nodes, result_edges, pagination = paginate_mapping_issues(result_nodes, result_edges, cursor=cursor, limit=limit)
         else:
-            result_nodes, result_edges, pagination = select_visible_page(result_nodes, result_edges, q, cursor=cursor, limit=limit)
+            if selected is None:
+                result_nodes, result_edges, pagination = select_visible_page(result_nodes, result_edges, q, cursor=cursor, limit=limit)
             result_nodes, result_edges = filter_graph(
                 result_nodes, result_edges, bb_project=bb_project, tc_project=tc_project,
                 status=status_filter, engine=engine_filter, has_image=has_image, has_sbom=has_sbom, target_only=target_only,
