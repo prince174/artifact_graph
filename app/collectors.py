@@ -354,13 +354,29 @@ class TeamCityCollector(ApiClient):
         return await self.get_json(f"/app/rest/buildTypes/id:{build_type_id}", fields=fields)
 
     async def builds(self, build_type_id: str):
+        if cache := getattr(self, "history_cache", None):
+            from .build_history import incremental_builds
+            return await incremental_builds(self, build_type_id, cache, settings.teamcity_build_lookback_days, settings.teamcity_build_limit)
+        return await self._builds_window(build_type_id)
+
+    async def _refresh_build(self, build_id):
+        try:
+            return await self.get_json(f"/app/rest/builds/id:{quote(str(build_id), safe='')}",
+                                       fields="id,buildTypeId,number,status,state,statusText,queuedDate,startDate,finishDate,webUrl")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+
+    async def _builds_window(self, build_type_id: str, since=None):
         fields = "nextHref,build(id,buildTypeId,number,status,state,statusText,queuedDate,startDate,finishDate,webUrl)"
         cutoff = (datetime.now(timezone.utc) - timedelta(days=settings.teamcity_build_lookback_days)).strftime("%Y%m%dT%H%M%S%z")
+        history_cutoff = since.strftime("%Y%m%dT%H%M%S%z") if since else cutoff
         limit = settings.teamcity_build_limit
         log.debug("teamcity_build_window configuration=%r days=%s since=%s limit=%s",
                   build_type_id, settings.teamcity_build_lookback_days, cutoff, limit or "ALL")
         groups = []
-        for endpoint, date_filter in (("builds", f"sinceDate:{cutoff},state:any,defaultFilter:false"),
+        for endpoint, date_filter in (("builds", f"sinceDate:{history_cutoff},state:any,defaultFilter:false"),
                                       ("buildQueue", f"queuedDate:(date:{cutoff},condition:after)")):
             builds, visited = [], set()
             path = f"/app/rest/{endpoint}"

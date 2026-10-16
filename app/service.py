@@ -147,6 +147,7 @@ async def collect_live():
     scan_progress.update(stage="bitbucket")
     log.info("collection_stage bitbucket_repositories")
     bb, tc = repository_provider(), TeamCityCollector(settings.teamcity_url, settings.teamcity_token)
+    tc.history_cache = _persistent("build_history") if settings.teamcity_incremental_history else None
     mapping_rules = load_mapping_rules(settings.mapping_rules_path)
     registry = RegistryCollector() if settings.registry_enabled else None
     manifest_cache = {}
@@ -274,8 +275,10 @@ async def collect_live():
                     if cached is not None:
                         build_input_cache.put(build_key, cached)
                 if cached is not None:
+                    log.debug("build_input_cache_hit build=%s", build["id"])
                     artifacts, build_log = cached
                 else:
+                    log.debug("build_input_cache_miss build=%s", build["id"])
                     try:
                         artifacts = await tc.artifacts(build["id"]) if finished else []
                         for artifact in artifacts:

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     teamcity_token: str = ""
     teamcity_build_limit: int = Field(default=0, ge=0, le=100)
     teamcity_build_lookback_days: int = Field(default=90, ge=1)
+    teamcity_incremental_history: bool = True
     teamcity_build_type_ids: str = ""
     teamcity_project_ids: str = ""
     registry_enabled: bool = False
