@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 from sqlalchemy import create_engine
@@ -11,7 +12,7 @@ from app.subgraph import select_visible_page
 
 @pytest.fixture
 def graph_db():
-    engine = create_engine("sqlite://")
+    engine = create_engine(os.getenv("GRAPH_QUERY_TEST_DATABASE_URL", "sqlite://"))
     Base.metadata.create_all(engine)
     nodes, edges = [], []
     for i in range(120):
@@ -33,6 +34,7 @@ def graph_db():
             db.add(Edge(**e, data="{}"))
         db.commit()
         yield db, nodes, edges
+    Base.metadata.drop_all(engine)
     engine.dispose()
 
 
@@ -67,3 +69,23 @@ def test_literal_wildcards_and_general_fallback(graph_db):
     assert repository_search(db, "%") is None
     assert repository_search(db, "Build 119") is None
     with pytest.raises(ValueError): repository_search(db, "repo", "invalid-cursor")
+
+
+def test_sql_build_limit_matches_python_order_without_loading_old_payloads(graph_db):
+    from app.subgraph import limit_builds_per_configuration
+    from sqlalchemy import event
+    db, nodes, edges = graph_db
+    for i in range(50):
+        node = dict(id=f"extra{i}", kind="build", label=f"Build #{i}", finishDate="20261015T120000+0300")
+        edge = dict(source="c119", target=node["id"], relation="ran_as")
+        nodes.append(node); edges.append(edge)
+        db.add(Node(id=node["id"], kind="build", label=node["label"], data=json.dumps({"finishDate": node["finishDate"], "large": "x" * 10000})))
+        db.add(Edge(**edge, data="{}"))
+    db.commit()
+    loaded = []
+    event.listen(db, "loaded_as_persistent", lambda session, row: loaded.append(row.id) if isinstance(row, Node) and row.kind == "build" else None)
+    actual = repository_search(db, "Repo_119", build_limit=5)
+    selected = select_visible_page(nodes, edges, "Repo_119")
+    expected, _ = limit_builds_per_configuration(selected[0], selected[1], 5)
+    assert {n["id"] for n in actual[0]} == {n["id"] for n in expected}
+    assert len(loaded) == 5

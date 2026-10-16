@@ -96,7 +96,9 @@ def version(): return {"version": __version__}
 def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100), build_limit: int = Query(5, ge=1, le=20)):
     try:
         with SessionLocal() as db:
-            selected = repository_search(db, q, cursor, limit) if q and not mapping_issues else None
+            # Build-dependent filters must inspect history before applying the UI limit.
+            sql_build_limit = None if any((status_filter, engine_filter, has_image is not None, has_sbom is not None, since_days)) else build_limit
+            selected = repository_search(db, q, cursor, limit, sql_build_limit) if q and not mapping_issues else None
             if selected is None:
                 nodes = db.query(Node).all()
                 edges = db.query(Edge).all()
