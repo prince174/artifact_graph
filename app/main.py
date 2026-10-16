@@ -28,6 +28,7 @@ from .security_headers import SecurityHeadersMiddleware
 from .graph_analysis import graph_insights, impact_report
 from .scheduling import schedule_refresh
 from .graph_payload import compact_node
+from .graph_cache import graph_cache
 from .scan_progress import scan_progress
 from .graph_queries import repository_search
 
@@ -103,6 +104,7 @@ def node_details(node_id: str):
 
 
 @app.get("/api/graph")
+@graph_cache.cached
 def graph(compact: bool = False, q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100), build_limit: int = Query(5, ge=1, le=20)):
     try:
         with SessionLocal() as db:

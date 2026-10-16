@@ -1,4 +1,5 @@
 from .scan_progress import scan_progress
+from .graph_cache import graph_cache
 import json
 import re
 import asyncio
@@ -62,6 +63,7 @@ def _save(nodes, edges):
         for key, row in existing_edges.items():
             if key not in edge_keys:
                 db.delete(row)
+    graph_cache.invalidate()
 
 
 def _load_graph() -> tuple[list[dict], list[dict]]:
