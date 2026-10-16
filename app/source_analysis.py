@@ -1,4 +1,6 @@
 from .scan_progress import scan_progress
+from .config import settings
+from .concurrency import bounded_results
 from dataclasses import dataclass
 import logging
 import posixpath
@@ -71,19 +73,25 @@ async def expand_scripts(provider: RepositoryProvider, repositories: list[Reposi
         seen = set()
         pending = list(source_paths) + referenced_scripts("\n".join(inline_scripts))
         while pending:
-            raw_path = pending.pop(0)
-            path = repository_source_path(raw_path)
-            if path is None:
-                log.warning("Skipping unresolved repository source path %r in %s/%s: "
-                            "outside checkout or unsupported path syntax; working directory is unknown",
-                            raw_path, repository.namespace, repository.slug)
-                continue
-            if path in seen:
-                continue
-            seen.add(path)
-            text = await provider.file_text(repository, path)
-            if text is not None:
-                sources.append(ScriptSource(f"{repository.namespace}/{repository.slug}/{path}", text))
-                pending.extend(referenced_scripts(text))
+            paths = []
+            for raw_path in pending:
+                path = repository_source_path(raw_path)
+                if path is None:
+                    log.warning("Skipping unresolved repository source path %r in %s/%s: "
+                                "outside checkout or unsupported path syntax; working directory is unknown",
+                                raw_path, repository.namespace, repository.slug)
+                elif path not in seen:
+                    seen.add(path)
+                    paths.append(path)
+            pending = []
+            # Populate the immutable file index once before parallel raw reads.
+            if paths and hasattr(provider, "file_index"):
+                await provider.file_index(repository)
+            async def read(path):
+                return await provider.file_text(repository, path)
+            async for _, path, text in bounded_results(paths, read, settings.bitbucket_concurrency):
+                if text is not None:
+                    sources.append(ScriptSource(f"{repository.namespace}/{repository.slug}/{path}", text))
+                    pending.extend(referenced_scripts(text))
         log.info("source_analysis_complete project=%r repo=%r paths_checked=%s", repository.project_key, repository.slug, len(seen))
     return sources

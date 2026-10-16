@@ -1,5 +1,6 @@
 from .scan_progress import scan_progress
 from .graph_cache import graph_cache
+from .concurrency import bounded_results
 import json
 import re
 import asyncio
@@ -262,11 +263,11 @@ async def collect_live():
             scan_progress.update(stage="build_list")
             builds = await tc.builds(detail["id"])
             scan_progress.update(buildsTotal=len(builds))
-            for build_index, build in enumerate(builds, 1):
-                scan_progress.update(stage="build", build=str(build["id"]), buildIndex=build_index)
+            persistent_build = _persistent("build")
+            async def prepare_build(build):
+                scan_progress.update(stage="build", build=str(build["id"]))
                 log.debug("teamcity_build_start project=%r configuration=%r build=%r", detail["projectId"], detail["id"], build["id"])
                 finished = build.get("state", "finished") == "finished"
-                persistent_build = _persistent("build")
                 build_key = ("build-v2", settings.teamcity_url.rstrip("/"), settings.teamcity_public_url.rstrip("/"), str(build["id"]), build.get("finishDate"))
                 cached = build_input_cache.get(build_key) if finished else None
                 if cached is None and finished:
@@ -281,6 +282,8 @@ async def collect_live():
                     log.debug("build_input_cache_miss build=%s", build["id"])
                     try:
                         artifacts = await tc.artifacts(build["id"]) if finished else []
+                        # Only SBOM artifacts contribute to this graph; avoid caching all binaries.
+                        artifacts = [item for item in artifacts if item.get("name", "").lower() == "sbom.json"]
                         for artifact in artifacts:
                             is_sbom = artifact.get("name", "").lower() == "sbom.json"
                             if is_sbom and artifact.get("contentHref"):
@@ -303,6 +306,10 @@ async def collect_live():
                             build["stale"] = True
                             build["staleReason"] = f"{type(exc).__name__}: build inputs unavailable"
                             build["staleSince"] = datetime.now(timezone.utc).isoformat()
+                return artifacts, build_log
+
+            async for build_index, build, (artifacts, build_log) in bounded_results(builds, prepare_build, settings.teamcity_concurrency):
+                scan_progress.update(buildIndex=build_index)
                 for artifact in artifacts:
                     if artifact.get("name", "").lower() == "sbom.json":
                         artifact["artifactRule"] = sbom_rule

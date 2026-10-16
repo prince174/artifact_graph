@@ -48,6 +48,41 @@ async def test_failure_does_not_advance_watermark_and_limit_bypasses_cache():
     with pytest.raises(RuntimeError):
         await incremental_builds(Collector(), "cfg", cache, 90, 0)
     assert cache.value is None
+
     with pytest.raises(RuntimeError):
         await incremental_builds(Collector(), "cfg", cache, 90, 5)
     assert cache.value is None
+
+
+@pytest.mark.asyncio
+async def test_collector_delta_locator_and_removed_queued_build(monkeypatch):
+    import httpx
+    from app.collectors import TeamCityCollector
+    from app.config import settings
+    monkeypatch.setattr(settings, "teamcity_build_limit", 0)
+    cache, requests = Cache(), []
+    date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%z")
+    def handler(request):
+        requests.append(request)
+        path = request.url.path
+        if path.endswith("id:2"):
+            return httpx.Response(404)
+        if path.endswith("id:1"):
+            return httpx.Response(200, json=dict(id=1, state="finished", startDate=date))
+        if path.endswith("buildQueue"):
+            return httpx.Response(200, json={"build": [] if cache.value else [dict(id=2, state="queued", queuedDate=date)]})
+        return httpx.Response(200, json={"build": [dict(id=3 if cache.value else 1, state="finished" if cache.value else "running", startDate=date)]})
+    collector = TeamCityCollector("http://tc", "test")
+    await collector.client.aclose()
+    collector.client = httpx.AsyncClient(base_url="http://tc", transport=httpx.MockTransport(handler))
+    collector.history_cache = cache
+    try:
+        await collector.builds("cfg")
+        first_locator = requests[0].url.params["locator"]
+        result = await collector.builds("cfg")
+        assert {b["id"] for b in result} == {1, 3}
+        assert all(b["state"] == "finished" for b in result)
+        assert requests[2].url.params["locator"] != first_locator
+        assert "buildType:(id:cfg)" in requests[2].url.params["locator"]
+    finally:
+        await collector.close()

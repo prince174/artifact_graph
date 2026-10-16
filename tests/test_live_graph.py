@@ -60,9 +60,11 @@ class FakeTeamCity:
         return [{"id": 42, "number": "5", "status": "SUCCESS", "webUrl": "http://teamcity/build/42"}]
 
     async def artifacts(self, _):
-        return [{"name": "sbom.json", "path": "artifacts/build/sbom.json", "url": "http://teamcity/sbom", "contentHref": "/sbom"}]
+        return [{"name": "sbom.json", "path": "artifacts/build/sbom.json", "url": "http://teamcity/sbom", "contentHref": "/sbom"},
+                {"name": "application.zip", "path": "application.zip", "contentHref": "/binary", "size": 1000000000}]
 
     async def artifact_content(self, _):
+        assert _ == "/sbom", "Binary artifacts must never be downloaded"
         return '{"bomFormat":"CycloneDX","specVersion":"1.6","components":[{}]}', False
 
     async def build_log(self, _):
