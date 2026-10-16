@@ -27,6 +27,7 @@ from .transport_security import validate_runtime_settings
 from .security_headers import SecurityHeadersMiddleware
 from .graph_analysis import graph_insights, impact_report
 from .scheduling import schedule_refresh
+from .graph_payload import compact_node
 from .scan_progress import scan_progress
 from .graph_queries import repository_search
 
@@ -92,8 +93,17 @@ def index(): return PAGE
 def version(): return {"version": __version__}
 
 
+@app.get("/api/nodes/{node_id:path}")
+def node_details(node_id: str):
+    with SessionLocal() as db:
+        row = db.get(Node, node_id)
+        if row is None:
+            raise HTTPException(404, "Node not found")
+        return {"id": row.id, "kind": row.kind, "label": row.label, **json.loads(row.data)}
+
+
 @app.get("/api/graph")
-def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100), build_limit: int = Query(5, ge=1, le=20)):
+def graph(compact: bool = False, q: str = "", bb_project: str = "", tc_project: str = "", status_filter: str = "", engine_filter: str = "", has_image: bool | None = None, has_sbom: bool | None = None, target_only: bool = False, mapping_issues: bool = False, since_days: int = 0, cursor: str = "", limit: int = Query(10, ge=1, le=100), build_limit: int = Query(5, ge=1, le=20)):
     try:
         with SessionLocal() as db:
             # Build-dependent filters must inspect history before applying the UI limit.
@@ -120,7 +130,7 @@ def graph(q: str = "", bb_project: str = "", tc_project: str = "", status_filter
     except ValueError as exc:
         raise HTTPException(422, str(exc))
     result_nodes, result_edges = limit_builds_per_configuration(result_nodes, result_edges, build_limit)
-    return {"nodes": result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges), "pagination": pagination}
+    return {"nodes": [compact_node(n) for n in result_nodes] if compact else result_nodes, "edges": result_edges, "positions": layered_positions(result_nodes, result_edges), "pagination": pagination}
 
 
 @app.get("/api/options")
